@@ -16,14 +16,14 @@ export default function Index() {
       <View style={styles.bottom}>
         <TouchableOpacity
           style={styles.btnPrimary}
-          onPress={() => router.push("/register")}
+          onPress={() => router.push("/register" as any)}
         >
           <Text style={styles.btnPrimaryText}>Tạo hồ sơ</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.btnSecondary}
-          onPress={() => router.push("/login")}
+          onPress={() => router.push("/login" as any)}
         >
           <Text style={styles.btnSecondaryText}>Đăng nhập</Text>
         </TouchableOpacity>
