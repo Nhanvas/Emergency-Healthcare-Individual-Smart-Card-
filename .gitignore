@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Expo
+**/.expo/
+**/dist/
+
+# Environment & secrets
+.env
+.env.local
+**/.env
+**/.env.local
+
+# Build outputs
+**/android/
+**/ios/
+**/.next/
+**/out/
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*

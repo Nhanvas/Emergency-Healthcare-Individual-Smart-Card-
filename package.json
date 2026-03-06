@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "@types/babel__traverse": "^7.28.0"
+  }
+}
