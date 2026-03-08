@@ -1,68 +1,51 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ScrollView,
-  ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet,
+  Alert, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { getCurrentUser } from '../../services/authService';
 import {
-  getVolunteerData,
-  setOnline,
-  setOffline,
-  updateLocation,
-  saveFCMToken,
-  VolunteerData,
+  getVolunteerData, setOnline, setOffline,
+  updateLocation, saveFCMToken, VolunteerData,
 } from '../../services/volunteerService';
 import { acceptIncident } from '../../services/incidentService';
 import AlertModal, { AlertData } from '../../components/AlertModal';
-import {
-  COLORS,
-  LOCATION_INTERVAL_IDLE_MS,
-  LOCATION_INTERVAL_ACTIVE_MS,
-} from '../../constants';
+import { useIncident } from '../../context/IncidentContext';
+import { COLORS, LOCATION_INTERVAL_IDLE_MS, LOCATION_INTERVAL_ACTIVE_MS } from '../../constants';
 
 Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: false,
-      shouldShowBanner: false,
-      shouldShowList: false,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    }),
-  });
+  handleNotification: async () => ({
+    shouldShowAlert: false,
+    shouldShowBanner: false,
+    shouldShowList: false,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 export default function HomeScreen() {
   const router = useRouter();
   const user = getCurrentUser();
+  const { setActiveIncidentId } = useIncident();
 
   const [volunteer, setVolunteer] = useState<VolunteerData | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [toggling, setToggling] = useState(false);
-
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertData, setAlertData] = useState<AlertData | null>(null);
 
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load volunteer profile
   useEffect(() => {
     if (!user) return;
     getVolunteerData(user.uid).then((data) => {
-      if (data) {
-        setVolunteer(data);
-        setIsOnline(data.isOnline);
-      }
+      if (data) { setVolunteer(data); setIsOnline(data.isOnline); }
     });
   }, [user]);
 
-  // Lưu FCM token khi app launch
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -71,13 +54,10 @@ export default function HomeScreen() {
         if (status !== 'granted') return;
         const tokenData = await Notifications.getDevicePushTokenAsync();
         await saveFCMToken(user.uid, tokenData.data);
-      } catch (err) {
-        console.warn('FCM token error:', err);
-      }
+      } catch (err) { console.warn('FCM token error:', err); }
     })();
   }, [user]);
 
-  // Lắng nghe FCM notification
   useEffect(() => {
     const foregroundSub = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as any;
@@ -105,13 +85,9 @@ export default function HomeScreen() {
       }
     });
 
-    return () => {
-      foregroundSub.remove();
-      responseSub.remove();
-    };
+    return () => { foregroundSub.remove(); responseSub.remove(); };
   }, []);
 
-  // Online/Offline toggle
   const handleToggleOnline = async () => {
     if (!user || toggling) return;
     setToggling(true);
@@ -131,6 +107,7 @@ export default function HomeScreen() {
         stopLocationInterval();
         await setOffline(user.uid);
         setIsOnline(false);
+        setActiveIncidentId(null); // clear khi offline
       }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to update status.');
@@ -160,13 +137,13 @@ export default function HomeScreen() {
 
   useEffect(() => () => stopLocationInterval(), []);
 
-  // Accept incident
   const handleAccept = async () => {
     if (!alertData || !user) return;
     try {
       const result = await acceptIncident(alertData.incidentId, user.uid);
       if (result.success && result.patientId) {
         setAlertVisible(false);
+        setActiveIncidentId(alertData.incidentId); // ← set context
         startLocationInterval(true);
         router.push({
           pathname: '/patient-info',
@@ -181,14 +158,10 @@ export default function HomeScreen() {
     }
   };
 
-  const handleDecline = () => {
-    setAlertVisible(false);
-    setAlertData(null);
-  };
+  const handleDecline = () => { setAlertVisible(false); setAlertData(null); };
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Volunteer Dashboard</Text>
         <TouchableOpacity onPress={() => router.push('/profile')} style={styles.profileBtn}>
@@ -197,7 +170,6 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Welcome card */}
         {volunteer && (
           <View style={styles.welcomeCard}>
             <Text style={styles.welcomeText}>Welcome back,</Text>
@@ -206,7 +178,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Online/Offline toggle — 160dp circle */}
         <View style={styles.toggleSection}>
           <Text style={styles.toggleLabel}>
             {isOnline ? 'You are ONLINE' : 'You are OFFLINE'}
@@ -218,10 +189,7 @@ export default function HomeScreen() {
           </Text>
 
           <TouchableOpacity
-            style={[
-              styles.toggleCircle,
-              isOnline ? styles.toggleCircleOnline : styles.toggleCircleOffline,
-            ]}
+            style={[styles.toggleCircle, isOnline ? styles.toggleCircleOnline : styles.toggleCircleOffline]}
             onPress={handleToggleOnline}
             disabled={toggling}
             activeOpacity={0.8}
@@ -237,7 +205,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Info note */}
         {!isOnline && (
           <View style={styles.infoNote}>
             <Text style={styles.infoNoteText}>
@@ -260,27 +227,17 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.white },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 56,
-    paddingBottom: 16,
-    backgroundColor: COLORS.primary,
-    elevation: 4,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16,
+    backgroundColor: COLORS.primary, elevation: 4,
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: COLORS.white },
   profileBtn: { padding: 4 },
   profileIcon: { fontSize: 26 },
   content: { padding: 20, alignItems: 'center' },
   welcomeCard: {
-    width: '100%',
-    backgroundColor: COLORS.primaryLight,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 24,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.primary,
+    width: '100%', backgroundColor: COLORS.primaryLight, borderRadius: 14,
+    padding: 16, marginBottom: 24, borderLeftWidth: 4, borderLeftColor: COLORS.primary,
   },
   welcomeText: { fontSize: 13, color: COLORS.gray600 },
   volunteerName: { fontSize: 20, fontWeight: '700', color: COLORS.primary, marginTop: 2 },
@@ -288,30 +245,19 @@ const styles = StyleSheet.create({
   toggleSection: { alignItems: 'center', marginBottom: 28 },
   toggleLabel: { fontSize: 18, fontWeight: '700', color: COLORS.black900, marginBottom: 4 },
   toggleHint: {
-    fontSize: 13,
-    color: COLORS.gray600,
-    textAlign: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 20,
+    fontSize: 13, color: COLORS.gray600, textAlign: 'center',
+    marginBottom: 24, paddingHorizontal: 20,
   },
   toggleCircle: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 6,
+    width: 160, height: 160, borderRadius: 80,
+    justifyContent: 'center', alignItems: 'center', elevation: 6,
   },
   toggleCircleOnline: { backgroundColor: COLORS.primary },
   toggleCircleOffline: { backgroundColor: COLORS.gray600 },
   toggleIcon: { fontSize: 40, color: COLORS.white, marginBottom: 4 },
   toggleStateText: { fontSize: 15, fontWeight: '800', color: COLORS.white, letterSpacing: 2 },
   infoNote: {
-    width: '100%',
-    backgroundColor: '#E3F2FD',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 4,
+    width: '100%', backgroundColor: '#E3F2FD', borderRadius: 10, padding: 12, marginTop: 4,
   },
   infoNoteText: { fontSize: 13, color: '#1565C0', lineHeight: 18 },
 });

@@ -1,8 +1,11 @@
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 import { COLORS } from '../../constants';
+import { useIncident } from '../../context/IncidentContext';
 
 export default function TabsLayout() {
+  const { activeIncidentId } = useIncident();
+
   return (
     <Tabs
       screenOptions={{
@@ -35,6 +38,8 @@ export default function TabsLayout() {
         options={{
           title: 'Map',
           tabBarIcon: () => <Text style={{ fontSize: 22 }}>🗺️</Text>,
+          // Ẩn tab Map khi không có active incident
+          tabBarItemStyle: activeIncidentId ? {} : { display: 'none' },
         }}
       />
       <Tabs.Screen

@@ -23,7 +23,12 @@
         "VIBRATE",
         "POST_NOTIFICATIONS"
       ],
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyD-placeholder-not-used"
+        }
+      }
     },
     "plugins": [
       "expo-router",

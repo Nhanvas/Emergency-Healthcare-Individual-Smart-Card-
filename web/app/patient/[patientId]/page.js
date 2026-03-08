@@ -78,7 +78,7 @@ export default function PatientPage({ params }) {
   // Timeout 10 phút
   useEffect(() => {
     if (state !== 'finding_volunteer') return;
-    const timeout = setTimeout(() => setState('no_volunteer'), 10 * 60 * 1000);
+    const timeout = setTimeout(() => setState('no_volunteer'), 2 * 60 * 1000);
     return () => clearTimeout(timeout);
   }, [state]);
 

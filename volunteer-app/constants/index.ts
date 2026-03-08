@@ -18,7 +18,7 @@ export const COLORS = {
     offline: '#757575',
   };
   
-  export const GOONG_MAP_KEY = 'YOUR_GOONG_MAP_KEY'; // Điền sau ở Phase 4
+  export const GOONG_MAP_KEY = 'Bh4iJULjEMj4516Gvqh82jSUZnOfs9pMOfvzrHEr';
   export const DISPATCH_RADIUS_KM = 5;
   export const INCIDENT_TIMEOUT_MS = 10 * 60 * 1000;
   export const ALERT_COUNTDOWN_S = 30;
