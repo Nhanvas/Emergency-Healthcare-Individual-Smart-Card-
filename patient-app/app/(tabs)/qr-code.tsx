@@ -7,7 +7,7 @@ import QRCode from "react-native-qrcode-svg";
 import { auth } from "../../services/firebase";
 import { getPatient } from "../../services/patientService";
 
-const BYSTANDER_DOMAIN = "https://emergency-qr-medical.vercel.app";
+const BYSTANDER_DOMAIN = "https://emergency-healthcare-individual-sma.vercel.app";
 
 export default function QRCodeScreen() {
   const [patient, setPatient] = useState<any>(null);
