@@ -20,21 +20,18 @@ exports.createIncident = functions
     try {
       const { patientId, lat, lng } = req.body;
 
-      // Validate input
       if (!patientId || lat === undefined || lng === undefined) {
         return res.status(400).json({ error: "Thiếu patientId, lat hoặc lng" });
       }
 
-      // Kiểm tra patient tồn tại
       const patientDoc = await db.collection("patients").doc(patientId).get();
       if (!patientDoc.exists) {
         return res.status(404).json({ error: "Không tìm thấy patient" });
       }
 
-      // Tạo incident mới
       const now = admin.firestore.Timestamp.now();
       const expiresAt = admin.firestore.Timestamp.fromMillis(
-        now.toMillis() + 10 * 60 * 1000 // +10 phút
+        now.toMillis() + 10 * 60 * 1000
       );
 
       const incidentRef = await db.collection("incidents").add({
@@ -48,7 +45,6 @@ exports.createIncident = functions
         expiresAt,
       });
 
-      // Gọi findAndNotifyVolunteers
       await findAndNotifyVolunteers(incidentRef.id, { lat, lng });
 
       return res.status(200).json({ incidentId: incidentRef.id });
@@ -98,7 +94,6 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
     return;
   }
 
-  // Gửi FCM đến tất cả volunteer đủ điều kiện
   const tokens = eligibleVolunteers
     .filter((v) => v.fcmToken)
     .map((v) => v.fcmToken);
@@ -124,7 +119,6 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
     });
   }
 
-  // Lưu danh sách volunteer đã nhận thông báo
   await db.collection("incidents").doc(incidentId).update({
     notifiedVolunteers: notifiedIds,
   });
@@ -151,7 +145,6 @@ exports.acceptIncident = functions
 
       const incidentRef = db.collection("incidents").doc(incidentId);
 
-      // Firestore Transaction - đảm bảo chỉ 1 volunteer accept
       const result = await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(incidentRef);
         if (!snap.exists) throw new Error("incident_not_found");
@@ -161,20 +154,31 @@ exports.acceptIncident = functions
           return { success: false, error: "already_taken" };
         }
 
+        // ✅ Fix: lấy tên volunteer và lưu vào incident
+        const volunteerDoc = await db.collection("volunteers").doc(volunteerId).get();
+        const volunteerName = volunteerDoc.exists
+          ? volunteerDoc.data().name
+          : "Tình nguyện viên";
+
         transaction.update(incidentRef, {
           status: "accepted",
           acceptedBy: volunteerId,
           acceptedAt: admin.firestore.Timestamp.now(),
+          volunteerName: volunteerName,
         });
 
-        return { success: true, patientId: data.patientId };
+        return { success: true, patientId: data.patientId, volunteerName };
       });
 
       if (!result.success) {
         return res.status(409).json({ error: result.error });
       }
 
-      return res.status(200).json({ success: true, patientId: result.patientId });
+      return res.status(200).json({
+        success: true,
+        patientId: result.patientId,
+        volunteerName: result.volunteerName,
+      });
     } catch (err) {
       console.error("acceptIncident error:", err);
       return res.status(500).json({ error: "Lỗi server" });
