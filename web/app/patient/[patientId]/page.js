@@ -5,6 +5,7 @@ import { db } from '../../../services/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 
 // ==================== STATES ====================
+// ST0: ready_to_call (MỚI - hiện map + nút gọi volunteer)
 // ST1: loading_gps
 // ST2: finding_volunteer
 // ST3: volunteer_found
@@ -17,8 +18,9 @@ export default function PatientPage({ params }) {
   const [incidentId, setIncidentId] = useState(null);
   const [volunteerName, setVolunteerName] = useState('');
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [userLocation, setUserLocation] = useState(null);
 
-  // Lấy GPS và tạo incident
+  // Lấy GPS ngay khi load — nhưng chỉ hiện map, chưa tạo incident
   useEffect(() => {
     if (!navigator.geolocation) {
       setState('gps_denied');
@@ -26,28 +28,39 @@ export default function PatientPage({ params }) {
     }
 
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
+      (position) => {
         const { latitude, longitude } = position.coords;
-        setState('finding_volunteer');
-
-        try {
-          const res = await fetch(
-            `${process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_URL}/createIncident`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ patientId, lat: latitude, lng: longitude }),
-            }
-          );
-          const data = await res.json();
-          setIncidentId(data.incidentId);
-        } catch (err) {
-          console.error('Lỗi tạo incident:', err);
-        }
+        setUserLocation({ lat: latitude, lng: longitude });
+        setState('ready_to_call');
       },
       () => setState('gps_denied')
     );
   }, [patientId]);
+
+  // Khi user nhấn nút "Gọi tình nguyện viên"
+  const handleCallVolunteer = async () => {
+    if (!userLocation) return;
+    setState('finding_volunteer');
+
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_URL}/createIncident`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            patientId,
+            lat: userLocation.lat,
+            lng: userLocation.lng,
+          }),
+        }
+      );
+      const data = await res.json();
+      setIncidentId(data.incidentId);
+    } catch (err) {
+      console.error('Lỗi tạo incident:', err);
+    }
+  };
 
   // Lắng nghe Firestore incident realtime
   useEffect(() => {
@@ -78,13 +91,16 @@ export default function PatientPage({ params }) {
   // Timeout 10 phút
   useEffect(() => {
     if (state !== 'finding_volunteer') return;
-    const timeout = setTimeout(() => setState('no_volunteer'), 2 * 60 * 1000);
+    const timeout = setTimeout(() => setState('no_volunteer'), 10 * 60 * 1000);
     return () => clearTimeout(timeout);
   }, [state]);
 
   return (
     <main style={styles.container}>
       {state === 'loading_gps' && <LoadingGPS />}
+      {state === 'ready_to_call' && (
+        <ReadyToCall location={userLocation} onCall={handleCallVolunteer} />
+      )}
       {state === 'finding_volunteer' && <FindingVolunteer elapsed={elapsedTime} />}
       {state === 'volunteer_found' && <VolunteerFound name={volunteerName} />}
       {state === 'no_volunteer' && <NoVolunteer />}
@@ -106,6 +122,37 @@ function LoadingGPS() {
       <div style={styles.spinner} />
       <h2 style={styles.title}>Đang xác định vị trí...</h2>
       <p style={styles.subtitle}>Vui lòng cho phép truy cập vị trí khi được hỏi</p>
+    </div>
+  );
+}
+
+function ReadyToCall({ location, onCall }) {
+  const mapUrl = location
+    ? `https://www.google.com/maps?q=${location.lat},${location.lng}&z=16&output=embed`
+    : null;
+
+  return (
+    <div style={styles.stateContainer}>
+      <div style={styles.mapHeader}>
+        <span style={styles.locationIcon}>📍</span>
+        <h2 style={styles.title}>Vị trí của bạn</h2>
+        <p style={styles.subtitle}>Xác nhận vị trí và gọi tình nguyện viên gần nhất</p>
+      </div>
+
+      {/* Google Maps embed */}
+      {mapUrl && (
+        <iframe
+          src={mapUrl}
+          style={styles.map}
+          allowFullScreen=""
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+        />
+      )}
+
+      <button onClick={onCall} style={styles.callBtn}>
+        🚨 Gọi tình nguyện viên ngay
+      </button>
     </div>
   );
 }
@@ -194,7 +241,37 @@ const styles = {
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   },
-  pulseContainer: { position: 'relative', width: '100px', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  mapHeader: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '8px',
+    marginBottom: '8px',
+  },
+  locationIcon: { fontSize: '48px' },
+  map: {
+    width: '100%',
+    height: '240px',
+    borderRadius: '12px',
+    border: 'none',
+    marginBottom: '8px',
+  },
+  callBtn: {
+    width: '100%',
+    backgroundColor: '#D32F2F',
+    color: '#fff',
+    padding: '18px',
+    borderRadius: '8px',
+    fontSize: '18px',
+    fontWeight: 'bold',
+    border: 'none',
+    cursor: 'pointer',
+    marginTop: '8px',
+  },
+  pulseContainer: {
+    position: 'relative', width: '100px', height: '100px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center'
+  },
   pulseCircle: {
     position: 'absolute',
     width: '100px', height: '100px',
