@@ -32,7 +32,7 @@ export default function PatientPage({ params }) {
 
         try {
           const res = await fetch(
-            `${process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_URL}/createIncident`,
+            process.env.NEXT_PUBLIC_CREATE_INCIDENT_URL,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

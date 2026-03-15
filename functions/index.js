@@ -1,22 +1,21 @@
-const functions = require("firebase-functions");
+const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { setGlobalOptions } = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const { geohashQueryBounds, distanceBetween } = require("geofire-common");
 
 admin.initializeApp();
 const db = admin.firestore();
 
+// Set region cho tất cả functions
+setGlobalOptions({ region: "asia-southeast1" });
+
 // ==========================================
 // 1. createIncident (HTTP)
-// POST { patientId, lat, lng }
 // ==========================================
-exports.createIncident = functions
-  .region("asia-southeast1")
-  .https.onRequest(async (req, res) => {
-    res.set("Access-Control-Allow-Origin", "*");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type");
-    if (req.method === "OPTIONS") return res.status(204).send("");
-
+exports.createIncident = onRequest(
+  { cors: true },
+  async (req, res) => {
     try {
       const { patientId, lat, lng } = req.body;
 
@@ -52,7 +51,8 @@ exports.createIncident = functions
       console.error("createIncident error:", err);
       return res.status(500).json({ error: "Lỗi server" });
     }
-  });
+  }
+);
 
 // ==========================================
 // 2. findAndNotifyVolunteers (internal)
@@ -126,16 +126,10 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
 
 // ==========================================
 // 3. acceptIncident (HTTP)
-// POST { incidentId, volunteerId }
 // ==========================================
-exports.acceptIncident = functions
-  .region("asia-southeast1")
-  .https.onRequest(async (req, res) => {
-    res.set("Access-Control-Allow-Origin", "*");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type");
-    if (req.method === "OPTIONS") return res.status(204).send("");
-
+exports.acceptIncident = onRequest(
+  { cors: true },
+  async (req, res) => {
     try {
       const { incidentId, volunteerId } = req.body;
 
@@ -154,7 +148,6 @@ exports.acceptIncident = functions
           return { success: false, error: "already_taken" };
         }
 
-        // ✅ Fix: lấy tên volunteer và lưu vào incident
         const volunteerDoc = await db.collection("volunteers").doc(volunteerId).get();
         const volunteerName = volunteerDoc.exists
           ? volunteerDoc.data().name
@@ -183,15 +176,15 @@ exports.acceptIncident = functions
       console.error("acceptIncident error:", err);
       return res.status(500).json({ error: "Lỗi server" });
     }
-  });
+  }
+);
 
 // ==========================================
 // 4. expireIncidents (Scheduled - mỗi 5 phút)
 // ==========================================
-exports.expireIncidents = functions
-  .region("asia-southeast1")
-  .pubsub.schedule("every 5 minutes")
-  .onRun(async () => {
+exports.expireIncidents = onSchedule(
+  { schedule: "every 5 minutes", region: "asia-southeast1" },
+  async () => {
     const now = admin.firestore.Timestamp.now();
     const snap = await db
       .collection("incidents")
@@ -209,4 +202,5 @@ exports.expireIncidents = functions
     await batch.commit();
     console.log(`Đã expire ${snap.docs.length} incidents`);
     return null;
-  });
+  }
+);
