@@ -33,7 +33,7 @@ exports.createIncident = onRequest(
         now.toMillis() + 10 * 60 * 1000
       );
 
-      const incidentRef = await db.collection("incidents").add({
+      const incidentRef = await db.collection("emergencies").add({
         patientId,
         reporterLocation: { lat, lng },
         status: "pending",
@@ -119,7 +119,7 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
     });
   }
 
-  await db.collection("incidents").doc(incidentId).update({
+  await db.collection("emergencies").doc(incidentId).update({
     notifiedVolunteers: notifiedIds,
   });
 }
@@ -137,7 +137,7 @@ exports.acceptIncident = onRequest(
         return res.status(400).json({ error: "Thiếu incidentId hoặc volunteerId" });
       }
 
-      const incidentRef = db.collection("incidents").doc(incidentId);
+      const incidentRef = db.collection("emergencies").doc(incidentId);
 
       const result = await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(incidentRef);
@@ -187,7 +187,7 @@ exports.expireIncidents = onSchedule(
   async () => {
     const now = admin.firestore.Timestamp.now();
     const snap = await db
-      .collection("incidents")
+      .collection("emergencies")
       .where("status", "==", "pending")
       .where("expiresAt", "<=", now)
       .get();

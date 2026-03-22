@@ -57,11 +57,11 @@ export default function PatientInfoScreen() {
     );
   }
 
-  const age = calculateAge(patient.dob);
+  const age = calculateAge(patient.dateOfBirth);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Blood type — 48sp, most critical info */}
+      {/* Blood type */}
       <View style={styles.bloodTypeCard}>
         <Text style={styles.bloodTypeLabel}>BLOOD TYPE</Text>
         <Text style={styles.bloodTypeValue}>{patient.bloodType}</Text>
@@ -72,17 +72,21 @@ export default function PatientInfoScreen() {
         <Text style={styles.sectionTitle}>Patient</Text>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Name</Text>
-          <Text style={styles.infoValue}>{patient.name}</Text>
+          <Text style={styles.infoValue}>{patient.fullName}</Text>
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Age</Text>
           <Text style={styles.infoValue}>{age} years old</Text>
         </View>
-        {patient.phone ? (
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Gender</Text>
+          <Text style={styles.infoValue}>{patient.gender}</Text>
+        </View>
+        {patient.phoneNumber ? (
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Phone</Text>
-            <TouchableOpacity onPress={() => Linking.openURL(`tel:${patient.phone}`)}>
-              <Text style={[styles.infoValue, styles.phoneLink]}>{patient.phone}</Text>
+            <TouchableOpacity onPress={() => Linking.openURL(`tel:${patient.phoneNumber}`)}>
+              <Text style={[styles.infoValue, styles.phoneLink]}>{patient.phoneNumber}</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -116,29 +120,21 @@ export default function PatientInfoScreen() {
         </View>
       )}
 
-      {/* Medications */}
-      {patient.medications.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Current Medications</Text>
-          {patient.medications.map((item, i) => (
-            <Text key={i} style={styles.medicationItem}>💊 {item}</Text>
-          ))}
-        </View>
-      )}
-
       {/* Emergency Contact */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Emergency Contact</Text>
-        <View style={styles.emergencyContactCard}>
-          <Text style={styles.contactName}>{patient.emergencyContact.name}</Text>
-          <TouchableOpacity
-            style={styles.callBtn}
-            onPress={() => Linking.openURL(`tel:${patient.emergencyContact.phone}`)}
-          >
-            <Text style={styles.callBtnText}>📞 {patient.emergencyContact.phone}</Text>
-          </TouchableOpacity>
+      {patient.emergencyContact ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Emergency Contact</Text>
+          <View style={styles.emergencyContactCard}>
+            <Text style={styles.contactName}>Liên hệ khẩn cấp</Text>
+            <TouchableOpacity
+              style={styles.callBtn}
+              onPress={() => Linking.openURL(`tel:${patient.emergencyContact}`)}
+            >
+              <Text style={styles.callBtnText}>📞 {patient.emergencyContact}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      ) : null}
 
       {/* Open Map */}
       <TouchableOpacity
@@ -226,7 +222,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   conditionChipText: { color: '#1565C0', fontWeight: '600', fontSize: 13 },
-  medicationItem: { fontSize: 14, color: COLORS.black900, paddingVertical: 4, lineHeight: 22 },
   emergencyContactCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',

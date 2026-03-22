@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "867493842983",
+    "project_id": "emergency-qr-medical",
+    "storage_bucket": "emergency-qr-medical.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:867493842983:android:dacce1e63d7c904012fe02",
+        "android_client_info": {
+          "package_name": "com.redcross.volunteerapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJB0CHMBvDmedsynAri51oTCg7QM354T4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

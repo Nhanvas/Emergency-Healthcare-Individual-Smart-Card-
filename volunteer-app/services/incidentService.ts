@@ -27,14 +27,14 @@ export interface IncidentData {
 }
 
 export interface PatientData {
-  name: string;
-  dob: string;
+  fullName: string;
+  dateOfBirth: string;
+  gender: string;
+  phoneNumber: string;
   bloodType: string;
   allergies: string[];
   conditions: string[];
-  medications: string[];
-  emergencyContact: { name: string; phone: string };
-  phone?: string;
+  emergencyContact: string;
 }
 
 export async function acceptIncident(
@@ -50,7 +50,7 @@ export async function acceptIncident(
 }
 
 export async function completeIncident(incidentId: string) {
-  await updateDoc(doc(db, 'incidents', incidentId), {
+  await updateDoc(doc(db, 'emergencies', incidentId), {
     status: 'completed',
     completedAt: serverTimestamp(),
   });
@@ -65,14 +65,14 @@ export function subscribeIncident(
   incidentId: string,
   callback: (data: IncidentData | null) => void
 ) {
-  return onSnapshot(doc(db, 'incidents', incidentId), (snap) => {
+  return onSnapshot(doc(db, 'emergencies', incidentId), (snap) => {
     callback(snap.exists() ? ({ id: snap.id, ...snap.data() } as IncidentData) : null);
   });
 }
 
 export async function getVolunteerHistory(volunteerId: string): Promise<IncidentData[]> {
   const q = query(
-    collection(db, 'incidents'),
+    collection(db, 'emergencies'),
     where('acceptedBy', '==', volunteerId),
     orderBy('createdAt', 'desc')
   );
