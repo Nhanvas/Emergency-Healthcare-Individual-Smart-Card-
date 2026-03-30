@@ -145,11 +145,10 @@ export default function HomeScreen() {
         setAlertVisible(false);
         setActiveIncidentId(alertData.incidentId); // ← set context
         startLocationInterval(true);
-        // Truyen patientData qua params - khong doc Firestore truc tiep
+        // Navigate den incident-tabs - man hinh swipeable tabs (Ban do + Ho so)
         router.push({
-          pathname: '/patient-info',
+          pathname: '/incident-tabs',
           params: {
-            patientId: result.patientId,
             incidentId: alertData.incidentId,
             patientData: JSON.stringify(result.patientData ?? {}),
           },

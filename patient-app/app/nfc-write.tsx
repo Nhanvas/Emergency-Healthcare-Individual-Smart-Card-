@@ -3,10 +3,9 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator
 } from "react-native";
 import { router } from "expo-router";
+import { BYSTANDER_DOMAIN } from "../constants/config";
 import { auth } from "../services/firebase";
 import NfcManager, { NfcTech, Ndef } from "react-native-nfc-manager";
-
-const BYSTANDER_DOMAIN = "https://emergency-qr-medical.vercel.app";
 
 type NFCState = "checking" | "ready" | "writing" | "success" | "error" | "unsupported";
 
