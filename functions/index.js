@@ -17,7 +17,7 @@ exports.createIncident = onRequest(
   { cors: true },
   async (req, res) => {
     try {
-      const { patientId, lat, lng } = req.body;
+      const { patientId, lat, lng, bystanderPhone, bystanderNote } = req.body;
 
       if (!patientId || lat === undefined || lng === undefined) {
         return res.status(400).json({ error: "Thiếu patientId, lat hoặc lng" });
@@ -30,12 +30,14 @@ exports.createIncident = onRequest(
 
       const now = admin.firestore.Timestamp.now();
       const expiresAt = admin.firestore.Timestamp.fromMillis(
-        now.toMillis() + 10 * 60 * 1000
+        now.toMillis() + 2 * 60 * 1000
       );
 
-      const incidentRef = await db.collection("emergencies").add({
+      const incidentRef = await db.collection("incidents").add({
         patientId,
         reporterLocation: { lat, lng },
+        bystanderPhone: bystanderPhone || null,
+        bystanderNote: bystanderNote || null,
         status: "pending",
         acceptedBy: null,
         acceptedAt: null,
@@ -119,7 +121,7 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
     });
   }
 
-  await db.collection("emergencies").doc(incidentId).update({
+  await db.collection("incidents").doc(incidentId).update({
     notifiedVolunteers: notifiedIds,
   });
 }
@@ -137,7 +139,7 @@ exports.acceptIncident = onRequest(
         return res.status(400).json({ error: "Thiếu incidentId hoặc volunteerId" });
       }
 
-      const incidentRef = db.collection("emergencies").doc(incidentId);
+      const incidentRef = db.collection("incidents").doc(incidentId);
 
       const result = await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(incidentRef);
@@ -167,10 +169,15 @@ exports.acceptIncident = onRequest(
         return res.status(409).json({ error: result.error });
       }
 
+      // Fetch patient data server-side — volunteer client không đọc trực tiếp được
+      const patientSnap = await db.collection("patients").doc(result.patientId).get();
+      const patientData = patientSnap.exists ? patientSnap.data() : null;
+
       return res.status(200).json({
         success: true,
         patientId: result.patientId,
         volunteerName: result.volunteerName,
+        patientData: patientData,
       });
     } catch (err) {
       console.error("acceptIncident error:", err);
@@ -183,11 +190,11 @@ exports.acceptIncident = onRequest(
 // 4. expireIncidents (Scheduled - mỗi 5 phút)
 // ==========================================
 exports.expireIncidents = onSchedule(
-  { schedule: "every 5 minutes", region: "asia-southeast1" },
+  { schedule: "every 1 minutes", region: "asia-southeast1" },
   async () => {
     const now = admin.firestore.Timestamp.now();
     const snap = await db
-      .collection("emergencies")
+      .collection("incidents")
       .where("status", "==", "pending")
       .where("expiresAt", "<=", now)
       .get();
