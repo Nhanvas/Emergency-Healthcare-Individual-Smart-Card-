@@ -145,9 +145,14 @@ export default function HomeScreen() {
         setAlertVisible(false);
         setActiveIncidentId(alertData.incidentId); // ← set context
         startLocationInterval(true);
+        // Truyen patientData qua params - khong doc Firestore truc tiep
         router.push({
           pathname: '/patient-info',
-          params: { patientId: result.patientId, incidentId: alertData.incidentId },
+          params: {
+            patientId: result.patientId,
+            incidentId: alertData.incidentId,
+            patientData: JSON.stringify(result.patientData ?? {}),
+          },
         });
       } else if (result.error === 'already_taken') {
         setAlertVisible(false);
