@@ -11,10 +11,12 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { signInVolunteer } from '../services/authService';
 import { COLORS } from '../constants';
 
 export default function LoginScreen() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,6 +36,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await signInVolunteer(email.trim(), password);
+      router.replace('/(tabs)/home');
     } catch (err: any) {
       const code = err?.code;
       if (
