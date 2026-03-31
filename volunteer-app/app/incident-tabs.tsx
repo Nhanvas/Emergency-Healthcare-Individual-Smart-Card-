@@ -13,20 +13,33 @@ import { updateLocation } from '../services/volunteerService';
 import { useIncident } from '../context/IncidentContext';
 import { COLORS, GOONG_MAP_KEY, LOCATION_INTERVAL_ACTIVE_MS } from '../constants';
 
-// Cast để tránh lỗi TypeScript với react-native-maps
 const MapViewC = MapView as any;
 const MarkerC = Marker as any;
 const UrlTileC = UrlTile as any;
 
+// Khop voi Firestore schema thuc te
 interface PatientData {
-  name: string;
-  dob: string;
-  phone?: string;
+  fullName: string;
+  dateOfBirth: string;
+  gender?: string;
+  phoneNumber?: string;
   bloodType: string;
   allergies: string[];
   conditions: string[];
-  medications: string[];
-  emergencyContact?: { name: string; phone: string };
+  medications?: string[];
+  emergencyContact?: string | {
+    name?: string;
+    phone?: string;
+    relationship?: string;
+  };
+}
+
+interface IncidentData {
+  status: string;
+  reporterLocation: { lat: number; lng: number };
+  bystanderPhone?: string;
+  bystanderNote?: string;
+  acceptedBy?: string;
 }
 
 function calcAge(dob: string): number {
@@ -55,7 +68,6 @@ export default function IncidentTabsScreen() {
   const user = getCurrentUser();
   const { setActiveIncidentId } = useIncident();
 
-  // Nhận params từ home.tsx
   const { incidentId, patientData: patientDataRaw } = useLocalSearchParams<{
     incidentId: string;
     patientData: string;
@@ -64,23 +76,22 @@ export default function IncidentTabsScreen() {
   const [activeTab, setActiveTab] = useState(0);
   const pagerRef = useRef<any>(null);
 
-  // --- Map state ---
   const mapRef = useRef<any>(null);
   const [incidentLocation, setIncidentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [incidentData, setIncidentData] = useState<IncidentData | null>(null);
   const [volunteerLoc, setVolunteerLoc] = useState<{ lat: number; lng: number } | null>(null);
   const [completing, setCompleting] = useState(false);
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // --- Patient state ---
   const [patient, setPatient] = useState<PatientData | null>(null);
 
-  // Subscribe incident để lấy vị trí và theo dõi status
+  // Subscribe incident
   useEffect(() => {
     if (!incidentId) return;
-    const unsub = subscribeIncident(incidentId, (data) => {
+    const unsub = subscribeIncident(incidentId, (data: any) => {
       if (!data) return;
       setIncidentLocation(data.reporterLocation);
-      // Nếu incident đã completed (từ màn hình khác), về home
+      setIncidentData(data);
       if (data.status === 'completed') {
         setActiveIncidentId(null);
         router.replace('/(tabs)/home');
@@ -89,14 +100,21 @@ export default function IncidentTabsScreen() {
     return unsub;
   }, [incidentId]);
 
-  // Parse patient data từ params — không đọc Firestore trực tiếp
+  // Parse patient data tu params
   useEffect(() => {
     if (!patientDataRaw) return;
     try {
-      const parsed = JSON.parse(patientDataRaw) as PatientData;
-      if (parsed?.name) setPatient(parsed);
+      const parsed = JSON.parse(patientDataRaw);
+      // Ho tro ca 2 format: fullName (moi) va name (cu)
+      if (parsed && (parsed.fullName || parsed.name)) {
+        // Chuan hoa ve fullName
+        if (!parsed.fullName && parsed.name) parsed.fullName = parsed.name;
+        if (!parsed.dateOfBirth && parsed.dob) parsed.dateOfBirth = parsed.dob;
+        if (!parsed.phoneNumber && parsed.phone) parsed.phoneNumber = parsed.phone;
+        setPatient(parsed as PatientData);
+      }
     } catch {
-      Alert.alert('Lỗi', 'Không đọc được thông tin bệnh nhân.');
+      Alert.alert('Loi', 'Khong doc duoc thong tin benh nhan.');
     }
   }, [patientDataRaw]);
 
@@ -121,7 +139,7 @@ export default function IncidentTabsScreen() {
     };
   }, []);
 
-  // Auto-fit map khi có đủ 2 điểm
+  // Auto-fit map
   useEffect(() => {
     if (!incidentLocation || !volunteerLoc || !mapRef.current) return;
     mapRef.current.fitToCoordinates(
@@ -146,12 +164,12 @@ export default function IncidentTabsScreen() {
 
   const handleComplete = () => {
     Alert.alert(
-      'Hoàn thành?',
-      'Xác nhận bạn đã hỗ trợ bệnh nhân và sự cố đã được xử lý.',
+      'Hoan thanh?',
+      'Xac nhan ban da ho tro benh nhan va su co da duoc xu ly.',
       [
-        { text: 'Huỷ', style: 'cancel' },
+        { text: 'Huy', style: 'cancel' },
         {
-          text: 'Hoàn thành',
+          text: 'Hoan thanh',
           onPress: async () => {
             setCompleting(true);
             try {
@@ -159,7 +177,7 @@ export default function IncidentTabsScreen() {
               setActiveIncidentId(null);
               router.replace('/(tabs)/home');
             } catch (err: any) {
-              Alert.alert('Lỗi', err.message || 'Không thể hoàn thành.');
+              Alert.alert('Loi', err.message || 'Khong the hoan thanh.');
               setCompleting(false);
             }
           },
@@ -173,17 +191,62 @@ export default function IncidentTabsScreen() {
     pagerRef.current?.setPage(index);
   };
 
+  // Render emergency contact linh hoat (string hoac object)
+  const renderEmergencyContact = () => {
+    if (!patient?.emergencyContact) return null;
+    const ec = patient.emergencyContact;
+
+    if (typeof ec === 'string') {
+      // Format cu: chi la so dien thoai
+      return (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Lien he khan cap</Text>
+          <TouchableOpacity
+            style={styles.callBtn}
+            onPress={() => Linking.openURL(`tel:${ec}`)}
+          >
+            <Text style={styles.callBtnText}>{ec}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // Format moi: object {name, phone, relationship}
+    if (ec.phone) {
+      return (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Lien he khan cap</Text>
+          <View style={styles.contactRow}>
+            <View>
+              <Text style={styles.contactName}>{ec.name || 'Lien he'}</Text>
+              {ec.relationship ? (
+                <Text style={styles.contactRel}>{ec.relationship}</Text>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              style={styles.callBtn}
+              onPress={() => Linking.openURL(`tel:${ec.phone}`)}
+            >
+              <Text style={styles.callBtnText}>{ec.phone}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+    return null;
+  };
+
   return (
     <View style={styles.container}>
 
-      {/* Tab bar — 2 pill buttons */}
+      {/* Tab bar */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 0 && styles.tabBtnActive]}
           onPress={() => switchTab(0)}
         >
           <Text style={[styles.tabBtnText, activeTab === 0 && styles.tabBtnTextActive]}>
-            Bản đồ
+            Ban do
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -191,12 +254,11 @@ export default function IncidentTabsScreen() {
           onPress={() => switchTab(1)}
         >
           <Text style={[styles.tabBtnText, activeTab === 1 && styles.tabBtnTextActive]}>
-            Hồ sơ bệnh nhân
+            Ho so benh nhan
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Swipeable content */}
       <PagerView
         ref={pagerRef}
         style={styles.pager}
@@ -204,7 +266,7 @@ export default function IncidentTabsScreen() {
         onPageSelected={(e) => setActiveTab(e.nativeEvent.position)}
       >
 
-        {/* ===== TAB 1: BẢN ĐỒ ===== */}
+        {/* TAB 1: BAN DO */}
         <View key="map" style={styles.page}>
           {incidentLocation ? (
             <>
@@ -218,42 +280,38 @@ export default function IncidentTabsScreen() {
                   longitudeDelta: 0.05,
                 }}
               >
-                {/* Goong Map tiles */}
                 <UrlTileC
                   urlTemplate={`https://mt.goong.io/maps/{z}/{x}/{y}?api_key=${GOONG_MAP_KEY}`}
                   maximumZ={20}
                   flipY={false}
                 />
-                {/* Pin đỏ — vị trí bệnh nhân */}
                 <MarkerC
                   coordinate={{ latitude: incidentLocation.lat, longitude: incidentLocation.lng }}
-                  title="Vị trí bệnh nhân"
+                  title="Vi tri benh nhan"
                   pinColor={COLORS.alert}
                 />
-                {/* Chấm xanh — vị trí tình nguyện viên */}
                 {volunteerLoc && (
                   <MarkerC
                     coordinate={{ latitude: volunteerLoc.lat, longitude: volunteerLoc.lng }}
-                    title="Vị trí của bạn"
+                    title="Vi tri cua ban"
                   >
                     <View style={styles.volunteerDot} />
                   </MarkerC>
                 )}
               </MapViewC>
 
-              {/* Card dưới map */}
               <View style={styles.mapCard}>
                 <View style={styles.distanceRow}>
                   <Text style={styles.distanceText}>
-                    {distance !== null ? `${distance.toFixed(1)} km` : 'Đang tính...'}
+                    {distance !== null ? `${distance.toFixed(1)} km` : 'Dang tinh...'}
                   </Text>
                   <View style={styles.activeBadge}>
-                    <Text style={styles.activeBadgeText}>ĐANG XỬ LÝ</Text>
+                    <Text style={styles.activeBadgeText}>DANG XU LY</Text>
                   </View>
                 </View>
                 <View style={styles.btnRow}>
                   <TouchableOpacity style={styles.directionsBtn} onPress={handleGetDirections}>
-                    <Text style={styles.directionsBtnText}>Chỉ đường</Text>
+                    <Text style={styles.directionsBtnText}>Chi duong</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.completeBtn, completing && styles.btnDisabled]}
@@ -262,7 +320,7 @@ export default function IncidentTabsScreen() {
                   >
                     {completing
                       ? <ActivityIndicator color={COLORS.white} size="small" />
-                      : <Text style={styles.completeBtnText}>Hoàn thành</Text>
+                      : <Text style={styles.completeBtnText}>Hoan thanh</Text>
                     }
                   </TouchableOpacity>
                 </View>
@@ -271,38 +329,43 @@ export default function IncidentTabsScreen() {
           ) : (
             <View style={styles.centerLoading}>
               <ActivityIndicator size="large" color={COLORS.primary} />
-              <Text style={styles.loadingText}>Đang tải bản đồ...</Text>
+              <Text style={styles.loadingText}>Dang tai ban do...</Text>
             </View>
           )}
         </View>
 
-        {/* ===== TAB 2: HỒ SƠ BỆNH NHÂN ===== */}
+        {/* TAB 2: HO SO BENH NHAN */}
         <View key="profile" style={styles.page}>
           {patient ? (
             <ScrollView contentContainerStyle={styles.profileContent}>
 
-              {/* Nhóm máu */}
+              {/* Nhom mau */}
               <View style={styles.bloodCard}>
-                <Text style={styles.bloodLabel}>NHÓM MÁU</Text>
+                <Text style={styles.bloodLabel}>NHOM MAU</Text>
                 <Text style={styles.bloodValue}>{patient.bloodType || '?'}</Text>
               </View>
 
-              {/* Thông tin cá nhân */}
+              {/* Thong tin ca nhan */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Bệnh nhân</Text>
-                <InfoRow label="Họ tên" value={patient.name} />
-                {patient.dob && <InfoRow label="Tuổi" value={`${calcAge(patient.dob)} tuổi`} />}
-                {patient.phone && (
-                  <TouchableOpacity onPress={() => Linking.openURL(`tel:${patient.phone}`)}>
-                    <InfoRow label="Điện thoại" value={patient.phone} highlight />
-                  </TouchableOpacity>
+                <Text style={styles.sectionTitle}>Benh nhan</Text>
+                <InfoRow label="Ho ten" value={patient.fullName} />
+                {patient.dateOfBirth && (
+                  <InfoRow label="Tuoi" value={`${calcAge(patient.dateOfBirth)} tuoi`} />
                 )}
+                {patient.gender && (
+                  <InfoRow label="Gioi tinh" value={patient.gender} />
+                )}
+                {patient.phoneNumber ? (
+                  <TouchableOpacity onPress={() => Linking.openURL(`tel:${patient.phoneNumber}`)}>
+                    <InfoRow label="Dien thoai" value={patient.phoneNumber!} highlight />
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
-              {/* Dị ứng */}
+              {/* Di ung */}
               {patient.allergies?.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={[styles.sectionTitle, { color: COLORS.alert }]}>Dị ứng</Text>
+                  <Text style={[styles.sectionTitle, { color: COLORS.alert }]}>Di ung</Text>
                   <View style={styles.chips}>
                     {patient.allergies.map((a, i) => (
                       <View key={i} style={styles.allergyChip}>
@@ -313,10 +376,10 @@ export default function IncidentTabsScreen() {
                 </View>
               )}
 
-              {/* Bệnh nền */}
+              {/* Benh nen */}
               {patient.conditions?.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Bệnh nền</Text>
+                  <Text style={styles.sectionTitle}>Benh nen</Text>
                   <View style={styles.chips}>
                     {patient.conditions.map((c, i) => (
                       <View key={i} style={styles.conditionChip}>
@@ -327,10 +390,10 @@ export default function IncidentTabsScreen() {
                 </View>
               )}
 
-              {/* Thuốc đang dùng */}
-              {patient.medications?.length > 0 && (
+              {/* Thuoc */}
+              {patient.medications && patient.medications.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Thuốc đang dùng</Text>
+                  <Text style={styles.sectionTitle}>Thuoc dang dung</Text>
                   <View style={styles.chips}>
                     {patient.medications.map((m, i) => (
                       <View key={i} style={styles.medChip}>
@@ -341,28 +404,30 @@ export default function IncidentTabsScreen() {
                 </View>
               )}
 
-              {/* Liên hệ khẩn cấp */}
-              {patient.emergencyContact?.phone && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Liên hệ khẩn cấp</Text>
-                  <View style={styles.contactRow}>
-                    <Text style={styles.contactName}>
-                      {patient.emergencyContact.name || 'Liên hệ'}
-                    </Text>
+              {/* Lien he khan cap */}
+              {renderEmergencyContact()}
+
+              {/* Thong tin bystander */}
+              {(incidentData?.bystanderPhone || incidentData?.bystanderNote) && (
+                <View style={styles.bystanderSection}>
+                  <Text style={styles.bystanderTitle}>Thong tin nguoi bao</Text>
+                  {incidentData.bystanderPhone ? (
                     <TouchableOpacity
-                      style={styles.callBtn}
-                      onPress={() => Linking.openURL(`tel:${patient.emergencyContact!.phone}`)}
+                      onPress={() => Linking.openURL(`tel:${incidentData!.bystanderPhone}`)}
                     >
-                      <Text style={styles.callBtnText}>{patient.emergencyContact.phone}</Text>
+                      <InfoRow label="So dien thoai" value={incidentData.bystanderPhone!} highlight />
                     </TouchableOpacity>
-                  </View>
+                  ) : null}
+                  {incidentData.bystanderNote ? (
+                    <InfoRow label="Mo ta" value={incidentData.bystanderNote} />
+                  ) : null}
                 </View>
               )}
 
             </ScrollView>
           ) : (
             <View style={styles.centerLoading}>
-              <Text style={styles.loadingText}>Đang tải hồ sơ...</Text>
+              <Text style={styles.loadingText}>Dang tai ho so...</Text>
             </View>
           )}
         </View>
@@ -372,7 +437,6 @@ export default function IncidentTabsScreen() {
   );
 }
 
-// Helper component
 function InfoRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <View style={styles.infoRow}>
@@ -386,8 +450,6 @@ function InfoRow({ label, value, highlight }: { label: string; value: string; hi
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.white },
-
-  // Tab bar
   tabBar: {
     flexDirection: 'row', gap: 8, padding: 12,
     paddingTop: 52, backgroundColor: COLORS.white,
@@ -401,11 +463,8 @@ const styles = StyleSheet.create({
   tabBtnActive: { backgroundColor: COLORS.primary },
   tabBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.gray600 },
   tabBtnTextActive: { color: COLORS.white },
-
   pager: { flex: 1 },
   page: { flex: 1 },
-
-  // Map tab
   map: { flex: 1 },
   volunteerDot: {
     width: 20, height: 20, borderRadius: 10,
@@ -438,8 +497,6 @@ const styles = StyleSheet.create({
   },
   completeBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '700' },
   btnDisabled: { opacity: 0.6 },
-
-  // Patient profile tab
   profileContent: { padding: 20, paddingBottom: 40 },
   bloodCard: {
     backgroundColor: COLORS.alertLight, borderWidth: 2, borderColor: COLORS.alert,
@@ -475,13 +532,21 @@ const styles = StyleSheet.create({
   },
   medChipText: { color: '#7B1FA2', fontWeight: '600', fontSize: 13 },
   contactRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  contactName: { fontSize: 16, fontWeight: '600', color: COLORS.black900 },
+  contactName: { fontSize: 15, fontWeight: '600', color: COLORS.black900 },
+  contactRel: { fontSize: 12, color: COLORS.gray600, marginTop: 2 },
   callBtn: {
     backgroundColor: COLORS.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
   },
   callBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 14 },
-
-  // Shared
+  bystanderSection: {
+    marginBottom: 16, backgroundColor: '#E3F2FD',
+    borderRadius: 14, padding: 16,
+    borderLeftWidth: 4, borderLeftColor: '#1565C0',
+  },
+  bystanderTitle: {
+    fontSize: 12, fontWeight: '700', color: '#1565C0',
+    letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10,
+  },
   centerLoading: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   loadingText: { fontSize: 15, color: COLORS.gray600 },
 });
