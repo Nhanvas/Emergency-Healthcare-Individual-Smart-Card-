@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import * as MediaLibrary from "expo-media-library";
+import * as FileSystem from "expo-file-system";
 import { router } from "expo-router";
 import { auth } from "../../services/firebase";
 import { getPatient } from "../../services/patientService";
@@ -15,8 +16,6 @@ export default function QRCodeScreen() {
   const [loading, setLoading] = useState(true);
   const [qrValue, setQrValue] = useState("");
   const [saving, setSaving] = useState(false);
-
-  // Ref để lấy SVG data từ QRCode component
   const qrRef = useRef<any>(null);
 
   useEffect(() => {
@@ -46,49 +45,34 @@ export default function QRCodeScreen() {
   const handleDownload = async () => {
     if (!qrRef.current) return;
     setSaving(true);
-    try {
-      // Xin quyền truy cập thư viện ảnh
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Cần quyền truy cập",
-          "Vui lòng cho phép truy cập thư viện ảnh trong Cài đặt."
-        );
-        setSaving(false);
-        return;
-      }
 
-      // Lấy base64 PNG từ QRCode component rồi lưu vào gallery
-      qrRef.current.toDataURL(async (dataURL: string) => {
-        try {
-          // dataURL là base64 string — lưu trực tiếp vào MediaLibrary
-          const filename = `QR_${auth.currentUser?.uid}_${Date.now()}.png`;
-          const fileUri = `${require("expo-file-system") ? "" : ""}`;
-
-          // Dùng expo-file-system để ghi file tạm rồi lưu vào gallery
-          const FileSystem = require("expo-file-system");
-          const tempUri = FileSystem.cacheDirectory + filename;
-
-          await FileSystem.writeAsStringAsync(tempUri, dataURL, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-
-          const asset = await MediaLibrary.createAssetAsync(tempUri);
-          await MediaLibrary.createAlbumAsync("Emergency QR", asset, false);
-
-          Alert.alert("Đã lưu!", "Mã QR đã được lưu vào thư viện ảnh.");
-        } catch (e) {
-          console.error(e);
-          Alert.alert("Lỗi", "Không thể lưu ảnh. Thử lại nhé.");
-        } finally {
-          setSaving(false);
-        }
-      });
-    } catch (e) {
-      console.error(e);
-      Alert.alert("Lỗi", "Không thể lưu ảnh.");
+    const { status } = await MediaLibrary.requestPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Can quyen truy cap", "Vui long cho phep truy cap thu vien anh.");
       setSaving(false);
+      return;
     }
+
+    // toDataURL là callback — không phải Promise nên không dùng await
+    qrRef.current.toDataURL(async (dataURL: string) => {
+      try {
+        const tempUri = FileSystem.cacheDirectory + `qr_${Date.now()}.png`;
+
+        await FileSystem.writeAsStringAsync(tempUri, dataURL, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const asset = await MediaLibrary.createAssetAsync(tempUri);
+        await MediaLibrary.createAlbumAsync("Emergency QR", asset, false);
+
+        Alert.alert("Da luu!", "Ma QR da duoc luu vao thu vien anh.");
+      } catch (e) {
+        console.error("Download QR error:", e);
+        Alert.alert("Loi", "Khong the luu anh. Thu lai nhe.");
+      } finally {
+        setSaving(false);
+      }
+    });
   };
 
   if (loading) {
@@ -102,20 +86,19 @@ export default function QRCodeScreen() {
   if (!patient) {
     return (
       <View style={styles.center}>
-        <Text style={styles.emptyText}>Chưa có thông tin y tế</Text>
-        <Text style={styles.emptySubtext}>Vui lòng điền hồ sơ trước</Text>
+        <Text style={styles.emptyText}>Chua co thong tin y te</Text>
+        <Text style={styles.emptySubtext}>Vui long dien ho so truoc</Text>
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Mã QR khẩn cấp</Text>
+      <Text style={styles.title}>Ma QR khan cap</Text>
       <Text style={styles.subtitle}>
-        Cho người xung quanh quét mã này khi có tình huống khẩn cấp
+        Cho nguoi xung quanh quet ma nay khi co tinh huong khan cap
       </Text>
 
-      {/* QR Code */}
       <View style={styles.qrContainer}>
         <QRCode
           value={qrValue}
@@ -126,13 +109,11 @@ export default function QRCodeScreen() {
         />
       </View>
 
-      {/* Thông tin bên dưới QR */}
       <Text style={styles.patientName}>{patient.fullName}</Text>
       <View style={styles.bloodBadge}>
         <Text style={styles.bloodText}>{patient.bloodType}</Text>
       </View>
 
-      {/* Nút Download QR — lưu vào gallery */}
       <TouchableOpacity
         style={[styles.btnDownload, saving && styles.btnDisabled]}
         onPress={handleDownload}
@@ -141,21 +122,19 @@ export default function QRCodeScreen() {
         {saving ? (
           <ActivityIndicator color="#fff" size="small" />
         ) : (
-          <Text style={styles.btnDownloadText}>Lưu QR vào thư viện</Text>
+          <Text style={styles.btnDownloadText}>Luu QR vao thu vien</Text>
         )}
       </TouchableOpacity>
 
-      {/* Nút ghi NFC */}
       <TouchableOpacity
         style={styles.btnNfc}
         onPress={() => router.push("/nfc-write" as any)}
       >
-        <Text style={styles.btnNfcText}>Ghi thẻ NFC</Text>
+        <Text style={styles.btnNfcText}>Ghi the NFC</Text>
       </TouchableOpacity>
 
-      {/* Nút chia sẻ */}
       <TouchableOpacity style={styles.btnShare} onPress={handleShare}>
-        <Text style={styles.btnShareText}>Chia sẻ mã QR</Text>
+        <Text style={styles.btnShareText}>Chia se ma QR</Text>
       </TouchableOpacity>
 
       <Text style={styles.note}>
