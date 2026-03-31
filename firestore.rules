@@ -2,23 +2,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Patients: chi doc/ghi boi chinh chu
     match /patients/{patientId} {
       allow read, write: if request.auth != null && request.auth.uid == patientId;
     }
 
-    // Volunteers: tu doc/ghi document cua minh
     match /volunteers/{volunteerId} {
       allow read, write: if request.auth != null && request.auth.uid == volunteerId;
     }
 
-    // Incidents:
-    // - Unauthenticated (bystander web): chi doc incident (de onSnapshot hoat dong)
-    // - Authenticated volunteer: doc neu uid co trong notifiedVolunteers hoac la acceptedBy
-    // - Viet: chi qua Cloud Function (admin SDK) — client khong ghi truc tiep
     match /incidents/{incidentId} {
-      allow read: if true; // Bystander web can doc de theo doi trang thai
-      allow write: if false; // Chi Cloud Function moi ghi
+      // Bystander web (unauthenticated) can read for onSnapshot
+      allow read: if true;
+      // Volunteer co the update incident cua minh (mark complete)
+      allow update: if request.auth != null &&
+        resource.data.acceptedBy == request.auth.uid;
+      // Chi Cloud Function moi create/delete
+      allow create, delete: if false;
     }
   }
 }
