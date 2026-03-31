@@ -30,24 +30,28 @@ export default function TabsLayout() {
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: () => <Text style={{ fontSize: 22 }}>🏠</Text>,
+          tabBarIcon: () => <Text style={{ fontSize: 22 }}>{'🏠'}</Text>,
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: () => <Text style={{ fontSize: 22 }}>🗺️</Text>,
-          // Ẩn tab Map khi không có active incident
+          tabBarIcon: () => <Text style={{ fontSize: 22 }}>{'🗺'}</Text>,
           tabBarItemStyle: activeIncidentId ? {} : { display: 'none' },
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="settings"
         options={{
-          title: 'History',
-          tabBarIcon: () => <Text style={{ fontSize: 22 }}>📋</Text>,
+          title: 'Cai dat',
+          tabBarIcon: () => <Text style={{ fontSize: 22 }}>{'⚙'}</Text>,
         }}
+      />
+      {/* History van giu lai nhung an khoi tab bar */}
+      <Tabs.Screen
+        name="history"
+        options={{ href: null }}
       />
     </Tabs>
   );
