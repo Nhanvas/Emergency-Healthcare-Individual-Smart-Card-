@@ -145,8 +145,8 @@ export default function HomeScreen() {
         setAlertVisible(false);
         setActiveIncidentId(alertData.incidentId); // ← set context
         startLocationInterval(true);
-        // Navigate den incident-tabs - man hinh swipeable tabs (Ban do + Ho so)
-        router.push({
+        // Dung replace de tranh tab navigator chen ngang
+        router.replace({
           pathname: '/incident-tabs',
           params: {
             incidentId: alertData.incidentId,
