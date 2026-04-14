@@ -146,7 +146,7 @@ export default function HomeScreen() {
         setActiveIncidentId(alertData.incidentId); // ← set context
         startLocationInterval(true);
         // Dung replace de tranh tab navigator chen ngang
-        router.replace({
+        router.push({
           pathname: '/incident-tabs',
           params: {
             incidentId: alertData.incidentId,

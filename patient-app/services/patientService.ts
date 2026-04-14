@@ -3,11 +3,9 @@ import {
   doc,
   setDoc,
   getDoc,
-  updateDoc,
   serverTimestamp
 } from "firebase/firestore";
 
-// Lưu hoặc cập nhật thông tin bệnh nhân lên Firestore
 export const savePatient = async (data: {
   fullName: string;
   dateOfBirth: string;
@@ -16,7 +14,11 @@ export const savePatient = async (data: {
   bloodType: string;
   allergies: string[];
   conditions: string[];
-  emergencyContact: string;
+  emergencyContact: {
+    name: string;
+    phone: string;
+    relationship: string;
+  };
 }) => {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error("Chưa đăng nhập");
@@ -27,7 +29,6 @@ export const savePatient = async (data: {
   });
 };
 
-// Lấy thông tin bệnh nhân từ Firestore
 export const getPatient = async () => {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error("Chưa đăng nhập");

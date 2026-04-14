@@ -46,6 +46,17 @@ export default function Profile() {
     );
   }
 
+  // Helper lấy emergency contact string
+  const getEmergencyContact = () => {
+    if (!patient?.emergencyContact) return null;
+    if (typeof patient.emergencyContact === "string") {
+      return patient.emergencyContact;
+    }
+    const { name, phone, relationship } = patient.emergencyContact;
+    const parts = [name, phone, relationship].filter(Boolean);
+    return parts.join(" · ");
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Hồ sơ của tôi</Text>
@@ -65,7 +76,7 @@ export default function Profile() {
             <Row label="Ngày sinh" value={patient.dateOfBirth} />
             <Row label="Giới tính" value={patient.gender} />
             <Row label="Số điện thoại" value={patient.phoneNumber} />
-            <Row label="Liên hệ khẩn cấp" value={patient.emergencyContact} />
+            <Row label="Liên hệ khẩn cấp" value={getEmergencyContact()} />
           </View>
 
           {/* Dị ứng */}
@@ -124,8 +135,7 @@ export default function Profile() {
   );
 }
 
-// Component hàng thông tin
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
     <View style={styles.row}>

@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import * as MediaLibrary from "expo-media-library";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { router } from "expo-router";
 import { auth } from "../../services/firebase";
 import { getPatient } from "../../services/patientService";
@@ -53,13 +53,16 @@ export default function QRCodeScreen() {
       return;
     }
 
-    // toDataURL là callback — không phải Promise nên không dùng await
     qrRef.current.toDataURL(async (dataURL: string) => {
       try {
-        const tempUri = FileSystem.cacheDirectory + `qr_${Date.now()}.png`;
+        const tempUri = (FileSystem as any).cacheDirectory + `qr_${Date.now()}.png`;
 
-        await FileSystem.writeAsStringAsync(tempUri, dataURL, {
-          encoding: FileSystem.EncodingType.Base64,
+        const base64Data = dataURL.includes(',')
+          ? dataURL.split(',')[1]
+          : dataURL;
+
+        await FileSystem.writeAsStringAsync(tempUri, base64Data, {
+          encoding: (FileSystem as any).EncodingType?.Base64 ?? 'base64',
         });
 
         const asset = await MediaLibrary.createAssetAsync(tempUri);

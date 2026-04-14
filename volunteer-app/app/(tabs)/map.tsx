@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Alert, Linking, ActivityIndicator,
+  Alert, Linking, ActivityIndicator, Platform,
 } from 'react-native';
-import MapView, { Marker, UrlTile } from 'react-native-maps';
+import MapView, { Marker, UrlTile, AnimatedRegion } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { subscribeIncident, completeIncident, IncidentData } from '../../services/incidentService';
@@ -32,17 +32,29 @@ export default function MapScreen() {
   const router = useRouter();
   const user = getCurrentUser();
   const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
 
-  // Lấy incidentId từ Context thay vì params
   const { activeIncidentId, setActiveIncidentId } = useIncident();
 
   const [incident, setIncident] = useState<IncidentData | null>(null);
   const [volunteerLocation, setVolunteerLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [completing, setCompleting] = useState(false);
 
+  const prevLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  // ✅ Animated coordinate (fix TS lỗi Region)
+  const animatedCoordinate: any = useRef(
+    new AnimatedRegion({
+      latitude: 0,
+      longitude: 0,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    })
+  ).current;
+
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Subscribe incident realtime
+  // Subscribe incident
   useEffect(() => {
     if (!activeIncidentId) return;
     const unsub = subscribeIncident(activeIncidentId, (data) => {
@@ -55,20 +67,59 @@ export default function MapScreen() {
     return unsub;
   }, [activeIncidentId]);
 
-  // Location tracking 15s
+  // Location tracking
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
 
       const loc = await Location.getCurrentPositionAsync({});
-      setVolunteerLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      const first = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+
+      prevLocationRef.current = first;
+      setVolunteerLocation(first);
+
+      animatedCoordinate.setValue({
+        latitude: first.lat,
+        longitude: first.lng,
+      });
 
       locationIntervalRef.current = setInterval(async () => {
         if (!user) return;
+
         const l = await Location.getCurrentPositionAsync({});
         const coords = { lat: l.coords.latitude, lng: l.coords.longitude };
+
+        // ✅ Filter noise (~5m)
+        const prev = prevLocationRef.current;
+        if (prev) {
+          const dist = getDistance(prev.lat, prev.lng, coords.lat, coords.lng);
+          if (dist < 0.005) return;
+        }
+
+        prevLocationRef.current = coords;
         setVolunteerLocation(coords);
+
+        // ✅ Smooth animation
+        if (Platform.OS === 'android') {
+          markerRef.current?.animateMarkerToCoordinate(
+            {
+              latitude: coords.lat,
+              longitude: coords.lng,
+            },
+            1000
+          );
+        } else {
+          animatedCoordinate.timing({
+            toValue: {
+              latitude: coords.lat,
+              longitude: coords.lng,
+            },
+            duration: 1000,
+            useNativeDriver: false,
+          }).start();
+        }
+
         await updateLocation(user.uid, coords.lat, coords.lng);
       }, LOCATION_INTERVAL_ACTIVE_MS);
     })();
@@ -78,10 +129,12 @@ export default function MapScreen() {
     };
   }, []);
 
-  // Auto-fit map
+  // ✅ Fix rung camera (chỉ chạy 1 lần)
   useEffect(() => {
     if (!incident || !volunteerLocation || !mapRef.current) return;
+
     const { lat, lng } = incident.reporterLocation;
+
     mapRef.current.fitToCoordinates(
       [
         { latitude: volunteerLocation.lat, longitude: volunteerLocation.lng },
@@ -89,7 +142,7 @@ export default function MapScreen() {
       ],
       { edgePadding: { top: 80, right: 80, bottom: 200, left: 80 }, animated: true }
     );
-  }, [incident, volunteerLocation]);
+  }, [incident]);
 
   const handleGetDirections = () => {
     if (!incident) return;
@@ -102,7 +155,7 @@ export default function MapScreen() {
     if (!activeIncidentId) return;
     Alert.alert(
       'Mark Complete?',
-      'Confirm you have assisted the patient and the incident is resolved.',
+      'Confirm you have assisted the patient.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -111,9 +164,9 @@ export default function MapScreen() {
             setCompleting(true);
             try {
               await completeIncident(activeIncidentId);
-              setActiveIncidentId(null); // clear context
+              setActiveIncidentId(null);
             } catch (err: any) {
-              Alert.alert('Error', err.message || 'Failed to complete incident.');
+              Alert.alert('Error', err.message);
               setCompleting(false);
             }
           },
@@ -130,15 +183,11 @@ export default function MapScreen() {
         )
       : null;
 
-  // Chưa có incident active
   if (!activeIncidentId || !incident) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={{ fontSize: 48, marginBottom: 12 }}>🗺️</Text>
+        <Text style={{ fontSize: 48 }}>🗺️</Text>
         <Text style={styles.loadingText}>No active incident</Text>
-        <Text style={{ fontSize: 13, color: COLORS.gray600, marginTop: 4 }}>
-          Accept an alert to see the map
-        </Text>
       </View>
     );
   }
@@ -155,51 +204,37 @@ export default function MapScreen() {
           longitudeDelta: 0.05,
         }}
       >
-        {/* Goong Map tiles */}
         <UrlTileComponent
           urlTemplate={`https://mt.goong.io/maps/{z}/{x}/{y}?api_key=${GOONG_MAP_KEY}`}
           maximumZ={20}
-          flipY={false}
         />
 
-        {/* Incident pin — đỏ */}
         <MarkerComponent
           coordinate={{
             latitude: incident.reporterLocation.lat,
             longitude: incident.reporterLocation.lng,
           }}
-          title="Patient Location"
           pinColor={COLORS.alert}
         />
 
-        {/* Volunteer dot — xanh */}
         {volunteerLocation && (
           <MarkerComponent
-            coordinate={{
-              latitude: volunteerLocation.lat,
-              longitude: volunteerLocation.lng,
-            }}
-            title="Your Location"
+            ref={markerRef}
+            coordinate={animatedCoordinate}
           >
             <View style={styles.volunteerDot} />
           </MarkerComponent>
         )}
       </MapViewComponent>
 
-      {/* Bottom info card */}
       <View style={styles.infoCard}>
-        <View style={styles.distanceRow}>
-          <Text style={styles.distanceText}>
-            {distance !== null ? `${distance.toFixed(1)} km` : 'Calculating...'}
-          </Text>
-          <View style={styles.statusBadge}>
-            <Text style={styles.statusBadgeText}>ACTIVE</Text>
-          </View>
-        </View>
+        <Text style={styles.distanceText}>
+          {distance !== null ? `${distance.toFixed(1)} km` : 'Calculating...'}
+        </Text>
 
         <View style={styles.buttonRow}>
           <TouchableOpacity style={styles.directionsBtn} onPress={handleGetDirections}>
-            <Text style={styles.directionsBtnText}>🧭 Get Directions</Text>
+            <Text>🧭 Directions</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -208,9 +243,9 @@ export default function MapScreen() {
             disabled={completing}
           >
             {completing ? (
-              <ActivityIndicator color={COLORS.white} size="small" />
+              <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.completeBtnText}>✓ Mark Complete</Text>
+              <Text style={{ color: '#fff' }}>Complete</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -219,44 +254,48 @@ export default function MapScreen() {
   );
 }
 
+// ✅ Styles (fix lỗi "styles not found")
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
   loadingContainer: {
-    flex: 1, justifyContent: 'center', alignItems: 'center', gap: 4,
-    backgroundColor: COLORS.white,
+    flex: 1, justifyContent: 'center', alignItems: 'center',
   },
-  loadingText: { fontSize: 17, fontWeight: '600', color: COLORS.black900 },
+  loadingText: { fontSize: 16 },
   volunteerDot: {
-    width: 20, height: 20, borderRadius: 10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: '#1565C0',
-    borderWidth: 3, borderColor: COLORS.white, elevation: 4,
+    borderWidth: 3,
+    borderColor: '#fff',
   },
   infoCard: {
-    backgroundColor: COLORS.white, padding: 20,
-    borderTopLeftRadius: 20, borderTopRightRadius: 20, elevation: 12,
+    padding: 16,
+    backgroundColor: '#fff',
   },
-  distanceRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 16,
+  distanceText: {
+    fontSize: 20,
+    fontWeight: 'bold',
   },
-  distanceText: { fontSize: 24, fontWeight: '700', color: COLORS.black900 },
-  statusBadge: {
-    backgroundColor: COLORS.primaryLight, paddingHorizontal: 12,
-    paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: COLORS.primary,
+  buttonRow: {
+    flexDirection: 'row',
+    marginTop: 10,
+    gap: 10,
   },
-  statusBadgeText: { color: COLORS.primary, fontWeight: '700', fontSize: 12, letterSpacing: 1 },
-  buttonRow: { flexDirection: 'row', gap: 12 },
   directionsBtn: {
-    flex: 1, height: 56, backgroundColor: '#E3F2FD',
-    borderRadius: 14, justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1, borderColor: '#1565C0',
+    flex: 1,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
   },
-  directionsBtnText: { color: '#1565C0', fontSize: 15, fontWeight: '700' },
   completeBtn: {
-    flex: 1, height: 56, backgroundColor: COLORS.primary,
-    borderRadius: 14, justifyContent: 'center', alignItems: 'center',
+    flex: 1,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'blue',
   },
-  completeBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '700' },
-  btnDisabled: { opacity: 0.6 },
+  btnDisabled: { opacity: 0.5 },
 });
