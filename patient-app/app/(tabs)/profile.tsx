@@ -75,6 +75,7 @@ export default function Profile() {
     );
   }
 
+<<<<<<< HEAD
   const hasProfile = Boolean(patient?.fullName?.trim());
   const name = patient?.fullName?.trim() || "";
   const phone = patient?.phoneNumber || "";
@@ -89,6 +90,18 @@ export default function Profile() {
     hasProfile && name.length > 0
       ? name.trim().charAt(0).toUpperCase()
       : "?";
+=======
+  // Helper lấy emergency contact string
+  const getEmergencyContact = () => {
+    if (!patient?.emergencyContact) return null;
+    if (typeof patient.emergencyContact === "string") {
+      return patient.emergencyContact;
+    }
+    const { name, phone, relationship } = patient.emergencyContact;
+    const parts = [name, phone, relationship].filter(Boolean);
+    return parts.join(" · ");
+  };
+>>>>>>> a69939ef88a13c9e04e846f016ccd2bf8097e9df
 
   return (
     <SafeAreaView style={styles.safeRoot} edges={["top"]}>
@@ -112,6 +125,49 @@ export default function Profile() {
               </Text>
             </View>
           </View>
+<<<<<<< HEAD
+=======
+
+          {/* Chi tiết */}
+          <View style={styles.section}>
+            <Row label="Ngày sinh" value={patient.dateOfBirth} />
+            <Row label="Giới tính" value={patient.gender} />
+            <Row label="Số điện thoại" value={patient.phoneNumber} />
+            <Row label="Liên hệ khẩn cấp" value={getEmergencyContact()} />
+          </View>
+
+          {/* Dị ứng */}
+          {patient.allergies?.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>⚠️ Dị ứng</Text>
+              <View style={styles.chipContainer}>
+                {patient.allergies.map((a: string, i: number) => (
+                  <View key={i} style={styles.chip}>
+                    <Text style={styles.chipText}>{a}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Bệnh lý */}
+          {patient.conditions?.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>🏥 Bệnh lý nền</Text>
+              <View style={styles.chipContainer}>
+                {patient.conditions.map((c: string, i: number) => (
+                  <View key={i} style={[styles.chip, styles.chipGray]}>
+                    <Text style={styles.chipTextGray}>{c}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+        </>
+      ) : (
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>Chưa có thông tin y tế</Text>
+>>>>>>> a69939ef88a13c9e04e846f016ccd2bf8097e9df
         </View>
 
         <View style={styles.cardsWrap}>
@@ -208,6 +264,7 @@ export default function Profile() {
           )}
         </View>
 
+<<<<<<< HEAD
         <View style={styles.btnRow}>
           <TouchableOpacity
             style={styles.btnEdit}
@@ -226,6 +283,15 @@ export default function Profile() {
         </View>
       </ScrollView>
     </SafeAreaView>
+=======
+function Row({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null;
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValue}>{value}</Text>
+    </View>
+>>>>>>> a69939ef88a13c9e04e846f016ccd2bf8097e9df
   );
 }
 

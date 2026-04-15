@@ -172,11 +172,22 @@ export default function HomeScreen() {
         setActivePatientData(result.patientData ?? null);
 
         startLocationInterval(true);
+<<<<<<< HEAD
 
         // Navigate thẳng đến tab Bản đồ (= Patient Report screen)
         // Không cần incident-tabs.tsx nữa
         router.replace('/(tabs)/map');
 
+=======
+        // Dung replace de tranh tab navigator chen ngang
+        router.push({
+          pathname: '/incident-tabs',
+          params: {
+            incidentId: alertData.incidentId,
+            patientData: JSON.stringify(result.patientData ?? {}),
+          },
+        });
+>>>>>>> a69939ef88a13c9e04e846f016ccd2bf8097e9df
       } else if (result.error === 'already_taken') {
         setAlertVisible(false);
         setAlertData(null);
