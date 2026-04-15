@@ -15,10 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system/legacy";
-<<<<<<< HEAD
 import { captureRef } from "react-native-view-shot";
-=======
->>>>>>> a69939ef88a13c9e04e846f016ccd2bf8097e9df
 import { router } from "expo-router";
 import { auth } from "../../services/firebase";
 import { getPatient } from "../../services/patientService";
@@ -100,7 +97,6 @@ export default function QRCodeScreen() {
       Alert.alert("Cần quyền truy cập", "Vui lòng cho phép truy cập thư viện ảnh.");
       return;
     }
-<<<<<<< HEAD
     setSaving(true);
     try {
       // Ưu tiên: chụp screenshot view chứa QR (bao gồm cả bracket corners)
@@ -113,30 +109,6 @@ export default function QRCodeScreen() {
         } catch {
           // Fallback sang SVG export nếu captureRef thất bại
         }
-=======
-
-    qrRef.current.toDataURL(async (dataURL: string) => {
-      try {
-        const tempUri = (FileSystem as any).cacheDirectory + `qr_${Date.now()}.png`;
-
-        const base64Data = dataURL.includes(',')
-          ? dataURL.split(',')[1]
-          : dataURL;
-
-        await FileSystem.writeAsStringAsync(tempUri, base64Data, {
-          encoding: (FileSystem as any).EncodingType?.Base64 ?? 'base64',
-        });
-
-        const asset = await MediaLibrary.createAssetAsync(tempUri);
-        await MediaLibrary.createAlbumAsync("Emergency QR", asset, false);
-
-        Alert.alert("Da luu!", "Ma QR da duoc luu vao thu vien anh.");
-      } catch (e) {
-        console.error("Download QR error:", e);
-        Alert.alert("Loi", "Khong the luu anh. Thu lai nhe.");
-      } finally {
-        setSaving(false);
->>>>>>> a69939ef88a13c9e04e846f016ccd2bf8097e9df
       }
       await saveQrPngViaDataUrl(qrSvgRef);
     } catch {
