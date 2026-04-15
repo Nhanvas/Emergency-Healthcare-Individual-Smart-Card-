@@ -56,11 +56,6 @@ export async function completeIncident(incidentId: string) {
   });
 }
 
-export async function getPatientInfo(patientId: string): Promise<PatientData | null> {
-  const snap = await getDoc(doc(db, 'patients', patientId));
-  return snap.exists() ? (snap.data() as PatientData) : null;
-}
-
 export function subscribeIncident(
   incidentId: string,
   callback: (data: IncidentData | null) => void

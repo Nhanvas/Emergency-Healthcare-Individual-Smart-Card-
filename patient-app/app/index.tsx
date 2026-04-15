@@ -1,59 +1,83 @@
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  ActivityIndicator,
+  StatusBar,
+} from "react-native";
 import { router } from "expo-router";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import { auth } from "../services/firebase";
+
+const SPLASH_MIN_MS = 2000;
 
 export default function Index() {
+  const [minSplashElapsed, setMinSplashElapsed] = useState(false);
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMinSplashElapsed(true), SPLASH_MIN_MS);
+    const unsub = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+    });
+    return () => {
+      clearTimeout(timer);
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!minSplashElapsed || user === undefined) return;
+    if (user) {
+      router.replace("/(tabs)/profile");
+    } else {
+      router.replace("/login");
+    }
+  }, [minSplashElapsed, user]);
+
   return (
-    <View style={styles.container}>
-      <View style={styles.top}>
-        <Text style={styles.icon}>🚨</Text>
-        <Text style={styles.title}>Emergency QR</Text>
-        <Text style={styles.subtitle}>
-          Lưu thông tin y tế của bạn.{"\n"}
-          Sẵn sàng cho mọi tình huống khẩn cấp.
-        </Text>
-      </View>
-
-      <View style={styles.bottom}>
-        <TouchableOpacity
-          style={styles.btnPrimary}
-          onPress={() => router.push("/register" as any)}
-        >
-          <Text style={styles.btnPrimaryText}>Tạo hồ sơ</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.btnSecondary}
-          onPress={() => router.push("/login" as any)}
-        >
-          <Text style={styles.btnSecondaryText}>Đăng nhập</Text>
-        </TouchableOpacity>
-      </View>
+    <View style={styles.screen}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#1892BE"
+        translucent={false}
+      />
+      <Image
+        source={require("../assets/images/Patient-logo.png")}
+        style={styles.logo}
+        resizeMode="contain"
+      />
+      <Text style={styles.appName}>EHIS CARD</Text>
+      <ActivityIndicator
+        color="white"
+        size="large"
+        style={styles.spinner}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 24 },
-  top: { flex: 1, justifyContent: "center", alignItems: "center" },
-  icon: { fontSize: 64, marginBottom: 16 },
-  title: { fontSize: 32, fontWeight: "bold", color: "#D32F2F", marginBottom: 12 },
-  subtitle: { fontSize: 16, color: "#757575", textAlign: "center", lineHeight: 24 },
-  bottom: { paddingBottom: 48, gap: 12 },
-  btnPrimary: {
-    backgroundColor: "#D32F2F",
-    height: 56,
-    borderRadius: 8,
+  screen: {
+    flex: 1,
+    backgroundColor: "#1892BE",
     justifyContent: "center",
     alignItems: "center",
   },
-  btnPrimaryText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-  btnSecondary: {
-    height: 56,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#D32F2F",
-    justifyContent: "center",
-    alignItems: "center",
+  logo: {
+    width: 180,
+    height: 180,
   },
-  btnSecondaryText: { color: "#D32F2F", fontSize: 16, fontWeight: "bold" },
+  appName: {
+    color: "#ffffff",
+    fontSize: 28,
+    fontWeight: "bold",
+    letterSpacing: 6,
+    marginTop: 16,
+  },
+  spinner: {
+    marginTop: 40,
+  },
 });

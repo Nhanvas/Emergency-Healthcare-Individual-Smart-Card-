@@ -7,10 +7,11 @@ import {
   StyleSheet,
   Animated,
   Vibration,
+  ActivityIndicator,
 } from 'react-native';
-import { COLORS, ALERT_COUNTDOWN_S } from '../constants';
+import { Ionicons } from '@expo/vector-icons';
 
-const AnimatedView = Animated.View as any;
+const COUNTDOWN_S = 30;
 
 export interface AlertData {
   incidentId: string;
@@ -27,145 +28,167 @@ interface Props {
 }
 
 export default function AlertModal({ visible, data, onAccept, onDecline }: Props) {
-  const [countdown, setCountdown] = useState(ALERT_COUNTDOWN_S);
+  const [countdown, setCountdown] = useState(COUNTDOWN_S);
+  const [elapsed, setElapsed] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // Animated value cho progress bar: 1 = đầy, 0 = hết
   const progressAnim = useRef(new Animated.Value(1)).current;
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const countdownInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  const clearAll = () => {
+    if (countdownInterval.current) {
+      clearInterval(countdownInterval.current);
+      countdownInterval.current = null;
+    }
+    if (elapsedInterval.current) {
+      clearInterval(elapsedInterval.current);
+      elapsedInterval.current = null;
+    }
+    if (animRef.current) {
+      animRef.current.stop();
+      animRef.current = null;
+    }
+  };
 
   useEffect(() => {
-    if (!visible) return;
-    setCountdown(ALERT_COUNTDOWN_S);
+    if (!visible) {
+      clearAll();
+      setCountdown(COUNTDOWN_S);
+      setElapsed(0);
+      setLoading(false);
+      progressAnim.setValue(1);
+      return;
+    }
+
+    // Rung khi modal xuất hiện
+    Vibration.vibrate([0, 400, 200, 400, 200, 400]);
+
+    // Reset state
+    setCountdown(COUNTDOWN_S);
     setLoading(false);
-
-    Vibration.vibrate([500, 500, 500, 500, 500], true);
-
     progressAnim.setValue(1);
-    Animated.timing(progressAnim, {
+
+    // Tính elapsed dựa vào createdAt
+    if (data?.createdAt) {
+      const initial = Math.floor((Date.now() - data.createdAt) / 1000);
+      setElapsed(initial);
+      elapsedInterval.current = setInterval(() => {
+        setElapsed((s) => s + 1);
+      }, 1000);
+    }
+
+    // Progress bar animation: 30s từ 1 → 0
+    animRef.current = Animated.timing(progressAnim, {
       toValue: 0,
-      duration: ALERT_COUNTDOWN_S * 1000,
+      duration: COUNTDOWN_S * 1000,
       useNativeDriver: false,
-    }).start();
+    });
+    animRef.current.start();
 
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.2, duration: 600, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ])
-    ).start();
-
-    intervalRef.current = setInterval(() => {
-      setCountdown((prev: number) => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current!);
+    // Countdown số đếm ngược
+    countdownInterval.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          clearAll();
           Vibration.cancel();
-          onDecline();
+          onDecline(); // timeout → tự decline
           return 0;
         }
-        return prev - 1;
+        return c - 1;
       });
     }, 1000);
 
     return () => {
-      clearInterval(intervalRef.current!);
+      clearAll();
       Vibration.cancel();
-      pulseAnim.stopAnimation();
     };
   }, [visible]);
 
+  // Cleanup khi unmount
+  useEffect(() => () => { clearAll(); Vibration.cancel(); }, []);
+
   const handleAccept = async () => {
-    clearInterval(intervalRef.current!);
-    Vibration.cancel();
     setLoading(true);
-    await onAccept();
-    setLoading(false);
+    clearAll();
+    Vibration.cancel();
+    try {
+      await onAccept();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDecline = () => {
-    clearInterval(intervalRef.current!);
+    clearAll();
     Vibration.cancel();
     onDecline();
   };
 
-  if (!data) return null;
+  // Progress bar width: animated % string
+  const barWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
 
-  const elapsedSeconds = Math.floor((Date.now() - data.createdAt) / 1000);
-  const elapsedText =
-    elapsedSeconds < 60
-      ? `${elapsedSeconds}s ago`
-      : `${Math.floor(elapsedSeconds / 60)}m ago`;
+  const distance = data?.distance?.toFixed(1) ?? '?';
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
-          {/* Header */}
+      {/* Backdrop */}
+      <View style={styles.backdrop}>
+        {/* Card */}
+        <View style={styles.card}>
+
+          {/* ── HEADER ── */}
           <View style={styles.header}>
-            <Text style={styles.headerText}>🚨 EMERGENCY ALERT</Text>
-          </View>
-
-          {/* Body */}
-          <View style={styles.body}>
-            <AnimatedView style={[styles.iconContainer, { transform: [{ scale: pulseAnim }] }]}>
-              <Text style={styles.icon}>🏥</Text>
-            </AnimatedView>
-
-            <Text style={styles.distanceText}>
-              📍 {data.distance.toFixed(1)} km away
+            <Ionicons name="warning-outline" size={44} color="#fff" style={styles.icon} />
+            <Text style={styles.headerTitle}>SỰ CỐ KHẨN CẤP</Text>
+            <Text style={styles.headerSub}>
+              Báo khẩn cấp {elapsed}s trước
             </Text>
+          </View>
 
-            {data.neighborhoodHint ? (
-              <Text style={styles.neighborhoodText}>{data.neighborhoodHint}</Text>
-            ) : null}
+          {/* ── PROGRESS BAR ── */}
+          <View style={styles.progressTrack}>
+            <Animated.View style={[styles.progressFill, { width: barWidth }]} />
+          </View>
 
-            <Text style={styles.elapsedText}>Reported {elapsedText}</Text>
+          {/* ── BODY ── */}
+          <View style={styles.body}>
+            <Text style={styles.distance}>
+              Khoảng cách: {distance} km
+            </Text>
+            <Text style={styles.responseLabel}>Thời gian phản hồi</Text>
+            <Text style={styles.countdown}>{countdown}s</Text>
 
-            <View style={styles.countdownContainer}>
-              <Text style={styles.countdownText}>
-                Respond in{' '}
-                <Text style={[styles.countdownNumber, countdown <= 10 && styles.countdownUrgent]}>
-                  {countdown}s
-                </Text>
-              </Text>
-            </View>
+            {/* ── BUTTONS ── */}
+            <View style={styles.btnRow}>
+              <TouchableOpacity
+                style={styles.btnDecline}
+                onPress={handleDecline}
+                disabled={loading}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.btnDeclineText}>Từ chối</Text>
+              </TouchableOpacity>
 
-            {/* Progress bar */}
-            <View style={styles.progressTrack}>
-              <AnimatedView
-                style={[
-                  styles.progressFill,
-                  {
-                    width: progressAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ['0%', '100%'],
-                    }),
-                    backgroundColor: countdown <= 10 ? COLORS.alert : COLORS.primary,
-                  },
-                ]}
-              />
+              <TouchableOpacity
+                style={[styles.btnAccept, loading && styles.btnDisabled]}
+                onPress={handleAccept}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.btnAcceptText}>Tiếp nhận</Text>
+                }
+              </TouchableOpacity>
             </View>
           </View>
 
-          {/* Buttons */}
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={styles.declineBtn}
-              onPress={handleDecline}
-              disabled={loading}
-            >
-              <Text style={styles.declineBtnText}>DECLINE</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.acceptBtn, loading && styles.btnDisabled]}
-              onPress={handleAccept}
-              disabled={loading}
-            >
-              <Text style={styles.acceptBtnText}>
-                {loading ? 'Accepting...' : '✓ ACCEPT'}
-              </Text>
-            </TouchableOpacity>
-          </View>
         </View>
       </View>
     </Modal>
@@ -173,100 +196,125 @@ export default function AlertModal({ visible, data, onAccept, onDecline }: Props
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  // Backdrop
+  backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(192, 0, 0, 0.85)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
-  container: {
+
+  // Card
+  card: {
+    marginHorizontal: 24,
     width: '100%',
-    backgroundColor: COLORS.white,
+    maxWidth: 400,
     borderRadius: 16,
     overflow: 'hidden',
-    elevation: 20,
+    backgroundColor: '#fff',
+    elevation: 8,
   },
+
+  // Header
   header: {
-    backgroundColor: COLORS.alert,
-    paddingVertical: 16,
+    backgroundColor: '#E53935',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
     alignItems: 'center',
   },
-  headerText: {
-    color: COLORS.white,
-    fontSize: 20,
-    fontWeight: '800',
+  icon: {
+    marginBottom: 8,
+  },
+  headerTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
     letterSpacing: 1,
+    textAlign: 'center',
   },
-  body: {
-    padding: 24,
-    alignItems: 'center',
+  headerSub: {
+    color: '#fff',
+    fontSize: 13,
+    opacity: 0.9,
+    marginTop: 4,
+    textAlign: 'center',
   },
-  iconContainer: { marginBottom: 12 },
-  icon: { fontSize: 56 },
-  distanceText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: COLORS.black900,
-    marginBottom: 4,
-  },
-  neighborhoodText: {
-    fontSize: 16,
-    color: COLORS.gray600,
-    marginBottom: 4,
-  },
-  elapsedText: {
-    fontSize: 14,
-    color: COLORS.gray600,
-    marginBottom: 16,
-  },
-  countdownContainer: { marginBottom: 8 },
-  countdownText: { fontSize: 16, color: COLORS.black900 },
-  countdownNumber: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: COLORS.primary,
-  },
-  countdownUrgent: { color: COLORS.alert },
+
+  // Progress bar
   progressTrack: {
+    height: 6,
+    backgroundColor: '#FFCDD2',
     width: '100%',
-    height: 8,
-    backgroundColor: COLORS.gray100,
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginTop: 8,
   },
   progressFill: {
-    height: '100%',
-    borderRadius: 4,
+    height: 6,
+    backgroundColor: '#E53935',
   },
-  buttonRow: {
+
+  // Body
+  body: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  distance: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#212121',
+    textAlign: 'center',
+  },
+  responseLabel: {
+    fontSize: 14,
+    color: '#757575',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  countdown: {
+    fontSize: 56,
+    fontWeight: 'bold',
+    color: '#E53935',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+
+  // Buttons
+  btnRow: {
     flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray100,
+    gap: 12,
+    marginTop: 20,
+    width: '100%',
   },
-  declineBtn: {
+  btnDecline: {
     flex: 1,
-    paddingVertical: 18,
+    height: 48,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#BDBDBD',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
     alignItems: 'center',
-    borderRightWidth: 1,
-    borderRightColor: COLORS.gray100,
   },
-  declineBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.gray600,
+  btnDeclineText: {
+    color: '#757575',
+    fontSize: 15,
+    fontWeight: '600',
   },
-  acceptBtn: {
+  btnAccept: {
     flex: 1,
-    paddingVertical: 18,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: COLORS.primary,
   },
-  acceptBtnText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: COLORS.white,
+  btnAcceptText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
   },
-  btnDisabled: { opacity: 0.6 },
+  btnDisabled: {
+    opacity: 0.6,
+  },
 });

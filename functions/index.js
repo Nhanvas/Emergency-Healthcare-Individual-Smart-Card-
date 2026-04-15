@@ -7,14 +7,17 @@ const { geohashQueryBounds, distanceBetween } = require("geofire-common");
 admin.initializeApp();
 const db = admin.firestore();
 
-// Set region cho tất cả functions
 setGlobalOptions({ region: "asia-southeast1" });
 
 // ==========================================
 // 1. createIncident (HTTP)
 // ==========================================
 exports.createIncident = onRequest(
-  { cors: true },
+  {
+    cors: true,
+    // FIX 3: minInstances: 1 giữ function luôn warm → không bị cold start ~2 phút
+    minInstances: 1,
+  },
   async (req, res) => {
     try {
       const { patientId, lat, lng, bystanderPhone, bystanderNote } = req.body;
@@ -30,7 +33,7 @@ exports.createIncident = onRequest(
 
       const now = admin.firestore.Timestamp.now();
       const expiresAt = admin.firestore.Timestamp.fromMillis(
-        now.toMillis() + 2 * 60 * 1000
+        now.toMillis() + 2 * 60 * 1000 // 2 phút
       );
 
       const incidentRef = await db.collection("incidents").add({
@@ -96,10 +99,7 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
     return;
   }
 
-  const tokens = eligibleVolunteers
-    .filter((v) => v.fcmToken)
-    .map((v) => v.fcmToken);
-
+  const tokens = eligibleVolunteers.filter((v) => v.fcmToken).map((v) => v.fcmToken);
   const notifiedIds = eligibleVolunteers.map((v) => v.id);
 
   if (tokens.length > 0) {
@@ -111,8 +111,8 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
         distance: String(eligibleVolunteers[0]?.distance ?? 0),
       },
       notification: {
-        title: "🚨 Có sự cố khẩn cấp gần bạn!",
-        body: `Cách bạn khoảng ${eligibleVolunteers[0]?.distance ?? "?"} km`,
+        title: "Co su co khan cap gan ban!",
+        body: `Cach ban khoang ${eligibleVolunteers[0]?.distance ?? "?"} km`,
       },
       android: {
         priority: "high",
@@ -130,7 +130,11 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
 // 3. acceptIncident (HTTP)
 // ==========================================
 exports.acceptIncident = onRequest(
-  { cors: true },
+  {
+    cors: true,
+    // FIX 3: minInstances: 1 giữ function luôn warm
+    minInstances: 1,
+  },
   async (req, res) => {
     try {
       const { incidentId, volunteerId } = req.body;
@@ -169,9 +173,25 @@ exports.acceptIncident = onRequest(
         return res.status(409).json({ error: result.error });
       }
 
-      // Fetch patient data server-side — volunteer client không đọc trực tiếp được
+      // FIX 4: Fetch patient data server-side + normalize field names
+      // Patient App lưu: fullName, dateOfBirth, phoneNumber, emergencyContact
+      // Volunteer App map.tsx đọc: fullName, dateOfBirth, phoneNumber, emergencyContact
+      // → field names đã khớp, trả về nguyên raw data
       const patientSnap = await db.collection("patients").doc(result.patientId).get();
-      const patientData = patientSnap.exists ? patientSnap.data() : null;
+      const rawPatient = patientSnap.exists ? patientSnap.data() : null;
+
+      // Normalize để đảm bảo field names nhất quán
+      const patientData = rawPatient ? {
+        fullName:         rawPatient.fullName || rawPatient.name || "",
+        dateOfBirth:      rawPatient.dateOfBirth || rawPatient.dob || "",
+        gender:           rawPatient.gender || "",
+        phoneNumber:      rawPatient.phoneNumber || rawPatient.phone || "",
+        bloodType:        rawPatient.bloodType || "",
+        allergies:        rawPatient.allergies || [],
+        conditions:       rawPatient.conditions || [],
+        medications:      rawPatient.medications || [],
+        emergencyContact: rawPatient.emergencyContact || null,
+      } : null;
 
       return res.status(200).json({
         success: true,
@@ -187,7 +207,7 @@ exports.acceptIncident = onRequest(
 );
 
 // ==========================================
-// 4. expireIncidents (Scheduled - mỗi 5 phút)
+// 4. expireIncidents (Scheduled — mỗi 1 phút)
 // ==========================================
 exports.expireIncidents = onSchedule(
   { schedule: "every 1 minutes", region: "asia-southeast1" },

@@ -1,339 +1,490 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { db } from '../../../services/firebase';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../../../services/firebase';
 
-// ==================== STATES ====================
-// ST0: info_form      — form nhập SĐT + mô tả (MỚI)
-// ST1: loading_gps    — đang xin GPS
-// ST2: finding_volunteer
-// ST3: volunteer_found
-// ST4: no_volunteer
-// ST5: gps_denied
+const TIMEOUT_MS = 2 * 60 * 1000;
+const CLOUD_FN_URL =
+  'https://asia-southeast1-emergency-qr-medical.cloudfunctions.net/createIncident';
 
-export default function PatientPage({ params }) {
-  const { patientId } = params;
-  const [state, setState] = useState('info_form'); // Bắt đầu từ ST0
-  const [incidentId, setIncidentId] = useState(null);
-  const [volunteerName, setVolunteerName] = useState('');
-  const [elapsedTime, setElapsedTime] = useState(0);
+const GLOBAL_STYLE = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #fff; font-family: system-ui, -apple-system, sans-serif; }
+  input, textarea, button { font-family: inherit; }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+`;
 
-  // Dữ liệu từ form ST0
-  const [bystanderPhone, setBystanderPhone] = useState('');
-  const [bystanderNote, setBystanderNote] = useState('');
+const YELLOW = '#FFD93D';
+const GREEN  = '#4CAF50';
+const RED    = '#E53935';
 
-  // Gọi hàm này sau khi bystander submit form ST0
-  const handleFormSubmit = () => {
-    setState('loading_gps');
-  };
+/* ── Shared sub-components ─────────────────────────────────── */
 
-  // Xin GPS và tạo incident — chỉ chạy khi state = loading_gps
-  useEffect(() => {
-    if (state !== 'loading_gps') return;
-
-    if (!navigator.geolocation) {
-      setState('gps_denied');
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        setState('finding_volunteer');
-
-        try {
-          const res = await fetch(
-            process.env.NEXT_PUBLIC_CREATE_INCIDENT_URL,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              // Gửi kèm bystanderPhone và bystanderNote từ ST0 form
-              body: JSON.stringify({
-                patientId,
-                lat: latitude,
-                lng: longitude,
-                bystanderPhone: bystanderPhone || null,
-                bystanderNote: bystanderNote || null,
-              }),
-            }
-          );
-          const data = await res.json();
-          setIncidentId(data.incidentId);
-        } catch (err) {
-          console.error('Lỗi tạo incident:', err);
-        }
-      },
-      () => setState('gps_denied')
-    );
-  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Lắng nghe Firestore incident realtime
-  useEffect(() => {
-    if (!incidentId) return;
-
-    const unsub = onSnapshot(doc(db, 'incidents', incidentId), (snap) => {
-      const data = snap.data();
-      if (!data) return;
-
-      if (data.status === 'accepted') {
-        setVolunteerName(data.volunteerName || 'Tình nguyện viên');
-        setState('volunteer_found');
-      } else if (data.status === 'expired') {
-        setState('no_volunteer');
-      }
-    });
-
-    return () => unsub();
-  }, [incidentId]);
-
-  // Đếm thời gian chờ
-  useEffect(() => {
-    if (state !== 'finding_volunteer') return;
-    const timer = setInterval(() => setElapsedTime((t) => t + 1), 1000);
-    return () => clearInterval(timer);
-  }, [state]);
-
-  // Timeout 2 phút — chuyển sang ST4 nếu không có volunteer
-  useEffect(() => {
-    if (state !== 'finding_volunteer') return;
-    const timeout = setTimeout(() => setState('no_volunteer'), 2 * 60 * 1000);
-    return () => clearTimeout(timeout);
-  }, [state]);
-
+function Header() {
   return (
-    <main style={styles.container}>
-      {state === 'info_form' && (
-        <InfoForm
-          phone={bystanderPhone}
-          note={bystanderNote}
-          onPhoneChange={setBystanderPhone}
-          onNoteChange={setBystanderNote}
-          onSubmit={handleFormSubmit}
+    <div style={{
+      backgroundColor: YELLOW,
+      borderBottomLeftRadius: 28,
+      borderBottomRightRadius: 28,
+      padding: '32px 24px 20px',
+      textAlign: 'center',
+      flexShrink: 0,
+    }}>
+      <span style={{ fontSize: 20, fontWeight: 'bold', color: '#212121' }}>
+        Báo cấp cứu
+      </span>
+    </div>
+  );
+}
+
+function Btn115({ isRed = false }) {
+  return (
+    <a
+      href="tel:115"
+      style={{
+        position: 'fixed',
+        bottom: 16,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 'calc(100% - 48px)',
+        maxWidth: 432,
+        height: 52,
+        borderRadius: 8,
+        backgroundColor: isRed ? RED : GREEN,
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        fontSize: 16,
+        fontWeight: 'bold',
+        textDecoration: 'none',
+        boxShadow: isRed
+          ? '0 4px 16px rgba(229,57,53,0.35)'
+          : '0 4px 16px rgba(76,175,80,0.35)',
+      }}
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"
+          fill="white"
         />
-      )}
-      {state === 'loading_gps' && <LoadingGPS />}
-      {state === 'finding_volunteer' && <FindingVolunteer elapsed={elapsedTime} />}
-      {state === 'volunteer_found' && <VolunteerFound name={volunteerName} />}
-      {state === 'no_volunteer' && <NoVolunteer />}
-      {state === 'gps_denied' && <GPSDenied onRetry={() => setState('loading_gps')} />}
-
-      {/* Nút 115 cố định ở dưới - luôn hiển thị ở MỌI state */}
-      <a href="tel:115" style={styles.emergencyBtn}>
-        Gọi 115 ngay
-      </a>
-    </main>
+      </svg>
+      Gọi 115
+    </a>
   );
 }
 
-// ==================== COMPONENTS ====================
-
-// ST0 — Form nhập thông tin trước khi báo cấp cứu
-function InfoForm({ phone, note, onPhoneChange, onNoteChange, onSubmit }) {
+function GraySpinner({ size = 48 }) {
   return (
-    <div style={styles.stateContainer}>
-      <div style={styles.formHeader}>
-        <div style={styles.sosIcon}>🚨</div>
-        <h1 style={styles.formTitle}>Báo cấp cứu</h1>
-        <p style={styles.formSubtitle}>
-          Điền thông tin bên dưới để giúp tình nguyện viên hỗ trợ tốt hơn.
-          Cả hai ô đều không bắt buộc.
-        </p>
+    <div style={{
+      width: size,
+      height: size,
+      borderRadius: '50%',
+      border: '4px solid #E0E0E0',
+      borderTop: '4px solid #9E9E9E',
+      animation: 'spin 0.9s linear infinite',
+      margin: '0 auto',
+    }} />
+  );
+}
+
+function TriangleIcon({ isRed = true }) {
+  const stroke = isRed ? RED      : '#9E9E9E';
+  const fill   = isRed ? '#FFEBEE' : '#F5F5F5';
+  const accent = isRed ? RED      : '#9E9E9E';
+  return (
+    <svg width="100" height="90" viewBox="0 0 100 90" fill="none">
+      <path
+        d="M50 8L6 82h88L50 8z"
+        fill={fill}
+        stroke={stroke}
+        strokeWidth="4"
+        strokeLinejoin="round"
+      />
+      <rect x="46" y="36" width="8" height="22" rx="4" fill={accent} />
+      <rect x="46" y="64" width="8" height="8"  rx="4" fill={accent} />
+    </svg>
+  );
+}
+
+/* ── State screens ──────────────────────────────────────────── */
+
+function ST0({ phone, note, onPhone, onNote, onSubmit }) {
+  return (
+    <div style={{ padding: '32px 24px', paddingBottom: 100 }}>
+      <label style={labelStyle}>Số điện thoại của bạn</label>
+      <input
+        type="tel"
+        value={phone}
+        onChange={e => onPhone(e.target.value)}
+        style={inputStyle}
+      />
+
+      <label style={{ ...labelStyle, marginTop: 20 }}>Mô tả tình huống</label>
+      <textarea
+        value={note}
+        onChange={e => onNote(e.target.value)}
+        rows={4}
+        style={textareaStyle}
+      />
+
+      <button onClick={onSubmit} style={reportBtnStyle}>
+        BÁO CẤP CỨU
+      </button>
+    </div>
+  );
+}
+
+function ST1() {
+  return (
+    <div style={center}>
+      <GraySpinner size={48} />
+      <p style={bigTitle}>Đang xác định vị trí ...</p>
+      <p style={subText}>Xin vui lòng cho phép truy cập vị trí khi được hỏi</p>
+    </div>
+  );
+}
+
+function ST2({ elapsed }) {
+  const fmt = s =>
+    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  return (
+    <div style={center}>
+      <GraySpinner size={48} />
+      <p style={bigTitle}>Đang tìm tình nguyện viên ...</p>
+
+      <div style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: '#F5F5F5',
+        borderRadius: 8,
+        padding: '10px 20px',
+      }}>
+        <span style={{ fontSize: 14, color: '#757575' }}>Thời gian chờ:</span>
+        <span style={{ fontSize: 16, fontWeight: 'bold', color: '#212121' }}>
+          {fmt(elapsed)}
+        </span>
       </div>
 
-      <div style={styles.formBody}>
-        <div style={styles.fieldGroup}>
-          <label style={styles.label}>Số điện thoại của bạn</label>
-          <input
-            type="tel"
-            placeholder="Ví dụ: 0901234567"
-            value={phone}
-            onChange={(e) => onPhoneChange(e.target.value)}
-            style={styles.input}
-          />
-        </div>
-
-        <div style={styles.fieldGroup}>
-          <label style={styles.label}>Mô tả tình huống</label>
-          <textarea
-            placeholder="Ví dụ: Người bị ngã xe, bất tỉnh..."
-            value={note}
-            onChange={(e) => onNoteChange(e.target.value)}
-            rows={3}
-            style={styles.textarea}
-          />
-        </div>
-
-        <button onClick={onSubmit} style={styles.reportBtn}>
-          Báo cấp cứu
-        </button>
-
-        <p style={styles.formNote}>
-          Sau khi nhấn, hệ thống sẽ xin phép truy cập vị trí của bạn để
-          gửi cảnh báo đến tình nguyện viên gần nhất.
-        </p>
-      </div>
+      <p style={subText}>
+        Yêu cầu đã được gửi đến các tình nguyện viên gần đây
+      </p>
     </div>
   );
 }
 
-// ST1
-function LoadingGPS() {
+function ST3({ volunteerName }) {
   return (
-    <div style={styles.stateContainer}>
-      <div style={styles.spinner} />
-      <h2 style={styles.title}>Đang xác định vị trí...</h2>
-      <p style={styles.subtitle}>Vui lòng cho phép truy cập vị trí khi được hỏi</p>
+    <div style={{ ...center, paddingTop: 40 }}>
+      <img
+        src="/success-hands.png"
+        alt="success"
+        style={{ width: 200, height: 200, objectFit: 'contain' }}
+      />
+      <p style={{ ...bigTitle, marginTop: 0 }}>Đã tìm thấy tình nguyện viên</p>
+      <p style={{ ...subText, marginTop: 0 }}>
+        {volunteerName} đang trên đường đến
+      </p>
+      <button style={{
+        width: '100%',
+        height: 52,
+        backgroundColor: '#fff',
+        border: '1.5px solid #212121',
+        borderRadius: 8,
+        fontSize: 16,
+        color: '#212121',
+        fontWeight: 500,
+        cursor: 'default',
+      }}>
+        Bạn có thể rời đi
+      </button>
     </div>
   );
 }
 
-// ST2
-function FindingVolunteer({ elapsed }) {
-  const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
-  const seconds = String(elapsed % 60).padStart(2, '0');
+function ST4() {
   return (
-    <div style={styles.stateContainer}>
-      <div style={styles.pulseContainer}>
-        <div style={{ ...styles.pulseCircle, animationDelay: '0s' }} />
-        <div style={{ ...styles.pulseCircle, animationDelay: '0.5s' }} />
-        <div style={{ ...styles.pulseCircle, animationDelay: '1s' }} />
-        <span style={styles.crossIcon}>✚</span>
-      </div>
-      <h2 style={styles.title}>Đang tìm tình nguyện viên...</h2>
-      <p style={styles.subtitle}>Thời gian chờ: {minutes}:{seconds}</p>
-      <p style={styles.subtitle}>Yêu cầu đã được gửi đến các tình nguyện viên gần đây</p>
+    <div style={center}>
+      <TriangleIcon isRed={true} />
+      <p style={{ ...bigTitle, textAlign: 'center' }}>
+        Không tìm thấy tình nguyện viên
+      </p>
+      <p style={subText}>Hiện không có tình nguyện viên nào trong khu vực</p>
+      <p style={subText}>Vui lòng gọi 115 ngay bên dưới</p>
     </div>
   );
 }
 
-// ST3
-function VolunteerFound({ name }) {
+function ST5({ onRetry }) {
   return (
-    <div style={styles.stateContainer}>
-      <div style={styles.successIcon}>✅</div>
-      <h2 style={{ ...styles.title, color: '#2E7D32' }}>Đã tìm thấy tình nguyện viên!</h2>
-      <p style={styles.subtitle}>{name} đang trên đường đến</p>
-      <div style={styles.successBox}>
-        <p style={styles.successText}>Bạn có thể rời đi</p>
-      </div>
-    </div>
-  );
-}
-
-// ST4
-function NoVolunteer() {
-  return (
-    <div style={styles.stateContainer}>
-      <div style={styles.warningIcon}>⚠️</div>
-      <h2 style={{ ...styles.title, color: '#C00000' }}>Không tìm thấy tình nguyện viên</h2>
-      <p style={styles.subtitle}>Hiện không có tình nguyện viên nào trong khu vực</p>
-      <p style={styles.subtitle}>Vui lòng gọi 115 ngay bên dưới</p>
-    </div>
-  );
-}
-
-// ST5
-function GPSDenied({ onRetry }) {
-  return (
-    <div style={styles.stateContainer}>
-      <div style={styles.warningIcon}>📍</div>
-      <h2 style={{ ...styles.title, color: '#C00000' }}>Không truy cập được vị trí</h2>
-      <p style={styles.subtitle}>Vui lòng cho phép truy cập vị trí và thử lại</p>
-      <button onClick={onRetry} style={styles.retryBtn}>
+    <div style={center}>
+      <TriangleIcon isRed={false} />
+      <p style={bigTitle}>Không truy cập được vị trí</p>
+      <p style={subText}>Xin vui lòng cho phép truy cập vị trí khi được hỏi</p>
+      <button
+        onClick={onRetry}
+        style={{
+          width: '100%',
+          height: 52,
+          backgroundColor: '#fff',
+          border: '1.5px solid #9E9E9E',
+          borderRadius: 8,
+          fontSize: 16,
+          color: '#212121',
+          fontWeight: 500,
+          cursor: 'pointer',
+        }}
+      >
         Thử lại
       </button>
     </div>
   );
 }
 
-// ==================== STYLES ====================
-const styles = {
-  container: {
-    maxWidth: '480px',
-    margin: '0 auto',
-    minHeight: '100vh',
-    padding: '24px 16px 100px',
-    fontFamily: 'sans-serif',
-    backgroundColor: '#fff',
-    position: 'relative',
-  },
-  stateContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '70vh',
-    textAlign: 'center',
-    gap: '16px',
-  },
+/* ── Style constants ────────────────────────────────────────── */
 
-  // ST0 Form styles
-  formHeader: { textAlign: 'center', marginBottom: '8px' },
-  sosIcon: { fontSize: '56px', marginBottom: '8px' },
-  formTitle: { fontSize: '26px', fontWeight: 'bold', color: '#D32F2F', margin: '0 0 8px' },
-  formSubtitle: { fontSize: '15px', color: '#757575', lineHeight: '1.5', margin: 0 },
-  formBody: { width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' },
-  fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', textAlign: 'left' },
-  label: { fontSize: '14px', fontWeight: '600', color: '#212121' },
-  input: {
-    height: '48px', padding: '0 14px', fontSize: '16px',
-    border: '1.5px solid #E0E0E0', borderRadius: '8px',
-    outline: 'none', width: '100%', boxSizing: 'border-box',
-  },
-  textarea: {
-    padding: '12px 14px', fontSize: '16px',
-    border: '1.5px solid #E0E0E0', borderRadius: '8px',
-    outline: 'none', width: '100%', boxSizing: 'border-box',
-    resize: 'none', fontFamily: 'sans-serif',
-  },
-  reportBtn: {
-    height: '56px', backgroundColor: '#D32F2F', color: '#fff',
-    border: 'none', borderRadius: '8px', fontSize: '18px',
-    fontWeight: 'bold', cursor: 'pointer', width: '100%',
-  },
-  formNote: {
-    fontSize: '13px', color: '#9E9E9E',
-    textAlign: 'center', lineHeight: '1.5', margin: 0,
-  },
-
-  // Shared styles
-  title: { fontSize: '20px', fontWeight: 'bold', color: '#212121', margin: 0 },
-  subtitle: { fontSize: '16px', color: '#757575', margin: 0 },
-  spinner: {
-    width: '48px', height: '48px',
-    border: '4px solid #f3f3f3',
-    borderTop: '4px solid #D32F2F',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-  },
-  pulseContainer: {
-    position: 'relative', width: '100px', height: '100px',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  pulseCircle: {
-    position: 'absolute', width: '100px', height: '100px',
-    borderRadius: '50%', border: '2px solid #D32F2F',
-    animation: 'pulse 2s ease-out infinite',
-  },
-  crossIcon: { fontSize: '32px', color: '#D32F2F', zIndex: 1 },
-  successIcon: { fontSize: '64px' },
-  warningIcon: { fontSize: '64px' },
-  successBox: {
-    backgroundColor: '#E8F5E9', padding: '16px 24px',
-    borderRadius: '8px', marginTop: '8px',
-  },
-  successText: { fontSize: '18px', fontWeight: 'bold', color: '#2E7D32', margin: 0 },
-  emergencyBtn: {
-    position: 'fixed', bottom: '16px', left: '50%',
-    transform: 'translateX(-50%)', width: 'calc(100% - 32px)',
-    maxWidth: '448px', backgroundColor: '#D32F2F', color: '#fff',
-    padding: '18px', borderRadius: '8px', textAlign: 'center',
-    fontSize: '18px', fontWeight: 'bold', textDecoration: 'none', display: 'block',
-  },
-  retryBtn: {
-    backgroundColor: '#D32F2F', color: '#fff', padding: '14px 32px',
-    borderRadius: '8px', fontSize: '16px', border: 'none',
-    cursor: 'pointer', marginTop: '8px',
-  },
+const labelStyle = {
+  display: 'block',
+  fontSize: 14,
+  color: '#212121',
+  fontWeight: 500,
+  marginBottom: 6,
 };
+
+const inputStyle = {
+  width: '100%',
+  height: 52,
+  padding: '0 14px',
+  fontSize: 16,
+  border: '1.5px solid #E0E0E0',
+  borderRadius: 8,
+  outline: 'none',
+  color: '#212121',
+  backgroundColor: '#fff',
+};
+
+const textareaStyle = {
+  width: '100%',
+  padding: '12px 14px',
+  fontSize: 16,
+  border: '1.5px solid #E0E0E0',
+  borderRadius: 8,
+  outline: 'none',
+  resize: 'none',
+  color: '#212121',
+  backgroundColor: '#fff',
+};
+
+const reportBtnStyle = {
+  width: '100%',
+  height: 52,
+  backgroundColor: RED,
+  color: '#fff',
+  border: 'none',
+  borderRadius: 8,
+  fontSize: 16,
+  fontWeight: 'bold',
+  letterSpacing: 1,
+  cursor: 'pointer',
+  marginTop: 24,
+};
+
+/** Centered column used by ST1, ST2, ST4, ST5 */
+const center = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  padding: '60px 24px',
+  paddingBottom: 100,
+  gap: 16,
+  textAlign: 'center',
+};
+
+const bigTitle = {
+  fontSize: 20,
+  fontWeight: 'bold',
+  color: '#212121',
+  margin: 0,
+};
+
+const subText = {
+  fontSize: 14,
+  color: '#757575',
+  margin: 0,
+  lineHeight: 1.6,
+};
+
+/* ── Main component ─────────────────────────────────────────── */
+
+export default function PatientPage({ params }) {
+  const { patientId } = params;
+
+  const [state,         setState]         = useState('loading');
+  const [phone,         setPhone]         = useState('');
+  const [note,          setNote]          = useState('');
+  const [incidentId,    setIncidentId]    = useState(null);
+  const [volunteerName, setVolunteerName] = useState('Tình nguyện viên');
+  const [elapsed,       setElapsed]       = useState(0);
+
+  const timerRef   = useRef(null);
+  const timeoutRef = useRef(null);
+
+  /* loading → st0 after 1.5 s */
+  useEffect(() => {
+    const t = setTimeout(() => setState('st0'), 1500);
+    return () => clearTimeout(t);
+  }, []);
+
+  /* ST2 count-up timer */
+  useEffect(() => {
+    if (state === 'st2') {
+      setElapsed(0);
+      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [state]);
+
+  /* ST2 → ST4 after 2 min */
+  useEffect(() => {
+    if (state === 'st2') {
+      timeoutRef.current = setTimeout(() => setState('st4'), TIMEOUT_MS);
+    } else {
+      clearTimeout(timeoutRef.current);
+    }
+    return () => clearTimeout(timeoutRef.current);
+  }, [state]);
+
+  /* Firestore realtime listener */
+  useEffect(() => {
+    if (!incidentId) return;
+    const unsub = onSnapshot(doc(db, 'incidents', incidentId), (snap) => {
+      if (!snap.exists()) return;
+      const { status, volunteerName: vn } = snap.data();
+      if (status === 'accepted') {
+        setVolunteerName(vn || 'Tình nguyện viên');
+        setState('st3');
+      } else if (status === 'expired') {
+        setState('st4');
+      }
+    });
+    return unsub;
+  }, [incidentId]);
+
+  /* Geolocation + createIncident */
+  const requestLocationAndCreate = useCallback(() => {
+    setState('st1');
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await fetch(CLOUD_FN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              patientId,
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              bystanderPhone: phone || null,
+              bystanderNote:  note  || null,
+            }),
+          });
+          const data = await res.json();
+          if (data.incidentId) {
+            setIncidentId(data.incidentId);
+            setState('st2');
+          } else {
+            setState('st4');
+          }
+        } catch {
+          setState('st4');
+        }
+      },
+      () => setState('st5'),
+      { timeout: 10000 }
+    );
+  }, [patientId, phone, note]);
+
+  /* ── Loading screen (full yellow, no header/115) ── */
+  if (state === 'loading') {
+    return (
+      <>
+        <style>{GLOBAL_STYLE}</style>
+        <div style={{
+          position: 'fixed', inset: 0,
+          backgroundColor: YELLOW,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <img
+            src="/bystander-logo.png"
+            alt="EHIS Card"
+            style={{ width: 160, height: 160, objectFit: 'contain' }}
+          />
+          <p style={{
+            color: '#fff',
+            fontSize: 28,
+            fontWeight: 'bold',
+            letterSpacing: 6,
+            marginTop: 16,
+          }}>
+            EHIS CARD
+          </p>
+          <div style={{
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            border: '4px solid rgba(255,255,255,0.3)',
+            borderTop: '4px solid #fff',
+            animation: 'spin 0.9s linear infinite',
+            marginTop: 40,
+          }} />
+        </div>
+      </>
+    );
+  }
+
+  /* ── Normal layout ST0 – ST5 ── */
+  return (
+    <>
+      <style>{GLOBAL_STYLE}</style>
+      <div style={{
+        maxWidth: 480,
+        margin: '0 auto',
+        minHeight: '100vh',
+        backgroundColor: '#fff',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        <Header />
+
+        <div style={{ flex: 1 }}>
+          {state === 'st0' && (
+            <ST0
+              phone={phone}
+              note={note}
+              onPhone={setPhone}
+              onNote={setNote}
+              onSubmit={requestLocationAndCreate}
+            />
+          )}
+          {state === 'st1' && <ST1 />}
+          {state === 'st2' && <ST2 elapsed={elapsed} />}
+          {state === 'st3' && <ST3 volunteerName={volunteerName} />}
+          {state === 'st4' && <ST4 />}
+          {state === 'st5' && <ST5 onRetry={requestLocationAndCreate} />}
+        </div>
+
+        <Btn115 isRed={state === 'st4'} />
+      </div>
+    </>
+  );
+}

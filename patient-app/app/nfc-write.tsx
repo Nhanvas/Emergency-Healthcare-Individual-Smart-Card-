@@ -1,172 +1,275 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Image,
+  Pressable,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { BYSTANDER_DOMAIN } from "../constants/config";
+import { getPatientPublicProfileUrl } from "../constants/config";
 import { auth } from "../services/firebase";
 import NfcManager, { NfcTech, Ndef } from "react-native-nfc-manager";
 
-type NFCState = "checking" | "ready" | "writing" | "success" | "error" | "unsupported";
+type NfcState = "ready" | "writing" | "error" | "success";
+
+const BG_READY   = "#1892BE";
+const BG_ERROR   = "#E53935";
+const BG_SUCCESS = "#43A047";
+
+const SUBTITLE_READY         = "Giữ điện thoại của bạn\ngần thẻ hoặc nhãn NFC.";
+const SUBTITLE_WRITING       = "Giữ điện thoại ở vị trí cố định.";
+const SUBTITLE_SUCCESS       = "URL hồ sơ y tế của bạn\nđã được lưu vào thẻ NFC.";
+const SUBTITLE_WRITE_ERROR   = "Vui lòng thử lại và giữ\nđiện thoại gần thẻ hơn.";
+const SUBTITLE_UNSUPPORTED   = "Thiết bị không hỗ trợ NFC.";
 
 export default function NFCWrite() {
-  const [nfcState, setNfcState] = useState<NFCState>("checking");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [nfcState, setNfcState]         = useState<NfcState>("ready");
+  const [errorSubtitle, setErrorSubtitle] = useState("");
+  const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    checkNFC();
-    return () => { NfcManager.cancelTechnologyRequest(); };
-  }, []);
+  // ─── Hàm ghi NFC ─────────────────────────────────────────────
+  const writeNFC = useCallback(async () => {
+    setNfcState("writing");
 
-  const checkNFC = async () => {
-    const supported = await NfcManager.isSupported();
-    if (!supported) {
-      setNfcState("unsupported");
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      setErrorSubtitle("Không xác định được tài khoản. Vui lòng đăng nhập lại.");
+      setNfcState("error");
       return;
     }
-    await NfcManager.start();
-    setNfcState("ready");
-  };
 
-  const handleWrite = async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-
-    const url = `${BYSTANDER_DOMAIN}/patient/${uid}`;
+    const url = getPatientPublicProfileUrl(uid);
 
     try {
-      setNfcState("writing");
+      // Chờ user đưa điện thoại vào gần thẻ NFC
       await NfcManager.requestTechnology(NfcTech.Ndef);
+
+      // Tạo NDEF message chứa URI record
       const bytes = Ndef.encodeMessage([Ndef.uriRecord(url)]);
-      if (bytes) {
-        await NfcManager.ndefHandler.writeNdefMessage(bytes);
+      if (!bytes || bytes.length === 0) {
+        throw new Error("Không tạo được NDEF payload.");
       }
+
+      await NfcManager.ndefHandler.writeNdefMessage(bytes);
       setNfcState("success");
-    } catch (e: any) {
-      setErrorMsg("Ghi thất bại. Thử lại nhé.");
-      setNfcState("error");
+
+    } catch (err: any) {
+      // Lỗi "cancelled" là do user thoát — không hiện lỗi
+      const msg: string = err?.message ?? "";
+      if (msg.includes("cancelled") || msg.includes("UserCancel")) {
+        setNfcState("ready");
+      } else {
+        setErrorSubtitle(SUBTITLE_WRITE_ERROR);
+        setNfcState("error");
+      }
     } finally {
+      // QUAN TRỌNG: luôn cancel technology request sau khi xong
       NfcManager.cancelTechnologyRequest();
     }
+  }, []);
+
+  // ─── Bootstrap khi mount ──────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      // Kiểm tra thiết bị có hỗ trợ NFC không
+      const supported = await NfcManager.isSupported();
+      if (cancelled) return;
+
+      if (!supported) {
+        setErrorSubtitle(SUBTITLE_UNSUPPORTED);
+        setNfcState("error");
+        return;
+      }
+
+      // Khởi động NFC manager — chỉ gọi 1 lần khi mount
+      try {
+        await NfcManager.start();
+      } catch (err: any) {
+        if (!cancelled) {
+          // Nếu đã start rồi (AlreadyStarted) thì bỏ qua lỗi này
+          const msg: string = err?.message ?? "";
+          if (!msg.includes("already") && !msg.includes("Already")) {
+            setErrorSubtitle(SUBTITLE_WRITE_ERROR);
+            setNfcState("error");
+            return;
+          }
+        }
+      }
+
+      if (cancelled) return;
+
+      setNfcState("ready");
+      // Tự động bắt đầu ghi sau 800ms (cho phép UI render xong)
+      startTimerRef.current = setTimeout(() => {
+        if (!cancelled) void writeNFC();
+      }, 800);
+    };
+
+    void bootstrap();
+
+    // Cleanup khi unmount
+    return () => {
+      cancelled = true;
+      if (startTimerRef.current) {
+        clearTimeout(startTimerRef.current);
+        startTimerRef.current = null;
+      }
+      // Hủy request technology nếu đang chờ
+      NfcManager.cancelTechnologyRequest();
+    };
+  }, [writeNFC]);
+
+  // ─── Thử lại ─────────────────────────────────────────────────
+  const handleRetry = async () => {
+    setErrorSubtitle("");
+    setNfcState("ready");
+
+    const supported = await NfcManager.isSupported();
+    if (!supported) {
+      setErrorSubtitle(SUBTITLE_UNSUPPORTED);
+      setNfcState("error");
+      return;
+    }
+
+    // FIX: KHÔNG gọi NfcManager.start() lần 2.
+    // Manager đã được start() trong useEffect bootstrap.
+    // Chỉ cần gọi writeNFC() lại là đủ.
+    setTimeout(() => void writeNFC(), 100);
   };
 
+  // ─── Màu nền và nội dung theo state ──────────────────────────
+  const shellBg =
+    nfcState === "error"   ? BG_ERROR :
+    nfcState === "success" ? BG_SUCCESS :
+    BG_READY;
+
+  const title =
+    nfcState === "ready"   ? "Sẵn sàng" :
+    nfcState === "writing" ? "Đang ghi ..." :
+    nfcState === "error"   ? "Lỗi" :
+    "Thành công";
+
+  const subtitle =
+    nfcState === "ready"   ? SUBTITLE_READY :
+    nfcState === "writing" ? SUBTITLE_WRITING :
+    nfcState === "error"   ? (errorSubtitle || SUBTITLE_WRITE_ERROR) :
+    SUBTITLE_SUCCESS;
+
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-        <Text style={styles.backText}>← Quay lại</Text>
-      </TouchableOpacity>
+    <View style={[styles.shell, { backgroundColor: shellBg }]}>
+      <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
 
-      <Text style={styles.title}>Ghi thẻ NFC</Text>
+        {/* Nút quay lại */}
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Quay lại"
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </Pressable>
 
-      {/* State: checking */}
-      {nfcState === "checking" && (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#D32F2F" />
-          <Text style={styles.stateText}>Đang kiểm tra NFC...</Text>
+        {/* Nội dung trung tâm */}
+        <View style={styles.centerWrap}>
+          {nfcState === "ready" && (
+            <Image
+              source={require("../assets/images/Patient-logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          )}
+          {nfcState === "writing" && (
+            <ActivityIndicator size={64} color="#FFFFFF" />
+          )}
+          {nfcState === "error" && (
+            <Ionicons name="warning-outline" size={90} color="#FFFFFF" />
+          )}
+          {nfcState === "success" && (
+            <Ionicons name="checkmark-circle-outline" size={90} color="#FFFFFF" />
+          )}
+
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
-      )}
 
-      {/* State: ready */}
-      {nfcState === "ready" && (
-        <View style={styles.center}>
-          <Text style={styles.nfcIcon}>📡</Text>
-          <Text style={styles.stateText}>Sẵn sàng ghi thẻ NFC</Text>
-          <Text style={styles.stateSubtext}>
-            Nhấn nút bên dưới rồi chạm điện thoại vào thẻ NFC
-          </Text>
-          <TouchableOpacity style={styles.btnPrimary} onPress={handleWrite}>
-            <Text style={styles.btnText}>Bắt đầu ghi</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* State: writing */}
-      {nfcState === "writing" && (
-        <View style={styles.center}>
-          <View style={styles.pulseContainer}>
-            <Text style={styles.nfcIcon}>📡</Text>
-          </View>
-          <Text style={styles.stateText}>Đang ghi...</Text>
-          <Text style={styles.stateSubtext}>
-            Giữ điện thoại gần thẻ NFC cho đến khi hoàn tất
-          </Text>
-        </View>
-      )}
-
-      {/* State: success */}
-      {nfcState === "success" && (
-        <View style={styles.center}>
-          <Text style={styles.successIcon}>✅</Text>
-          <Text style={styles.stateText}>Ghi thẻ thành công!</Text>
-          <Text style={styles.stateSubtext}>
-            Thẻ NFC đã được lập trình với thông tin khẩn cấp của bạn
-          </Text>
+        {/* Nút Thử lại (chỉ hiện khi lỗi) */}
+        {nfcState === "error" && (
           <TouchableOpacity
-            style={styles.btnPrimary}
-            onPress={() => router.replace("/(tabs)/qr-code" as any)}
+            style={styles.bottomBtn}
+            onPress={() => void handleRetry()}
+            activeOpacity={0.9}
           >
-            <Text style={styles.btnText}>Xem mã QR</Text>
+            <Text style={styles.bottomBtnTextError}>Thử lại</Text>
           </TouchableOpacity>
-        </View>
-      )}
+        )}
 
-      {/* State: error */}
-      {nfcState === "error" && (
-        <View style={styles.center}>
-          <Text style={styles.errorIcon}>❌</Text>
-          <Text style={styles.stateText}>Ghi thất bại</Text>
-          <Text style={styles.stateSubtext}>{errorMsg}</Text>
+        {/* Nút Hoàn tất (chỉ hiện khi thành công) */}
+        {nfcState === "success" && (
           <TouchableOpacity
-            style={styles.btnPrimary}
-            onPress={() => setNfcState("ready")}
+            style={styles.bottomBtn}
+            onPress={() => router.back()}
+            activeOpacity={0.9}
           >
-            <Text style={styles.btnText}>Thử lại</Text>
+            <Text style={styles.bottomBtnTextSuccess}>Hoàn tất</Text>
           </TouchableOpacity>
-        </View>
-      )}
+        )}
 
-      {/* State: unsupported */}
-      {nfcState === "unsupported" && (
-        <View style={styles.center}>
-          <Text style={styles.errorIcon}>📵</Text>
-          <Text style={styles.stateText}>Thiết bị không hỗ trợ NFC</Text>
-          <Text style={styles.stateSubtext}>
-            Bạn vẫn có thể dùng mã QR thay thế
-          </Text>
-          <TouchableOpacity
-            style={styles.btnSecondary}
-            onPress={() => router.replace("/(tabs)/qr-code" as any)}
-          >
-            <Text style={styles.btnSecondaryText}>Dùng mã QR</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 24, paddingTop: 48 },
-  backBtn: { marginBottom: 16 },
-  backText: { color: "#D32F2F", fontSize: 16 },
-  title: { fontSize: 24, fontWeight: "bold", color: "#D32F2F", marginBottom: 32 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 16 },
-  nfcIcon: { fontSize: 80 },
-  successIcon: { fontSize: 80 },
-  errorIcon: { fontSize: 80 },
-  stateText: { fontSize: 20, fontWeight: "bold", color: "#212121", textAlign: "center" },
-  stateSubtext: { fontSize: 15, color: "#757575", textAlign: "center", lineHeight: 22, paddingHorizontal: 16 },
-  pulseContainer: { alignItems: "center", justifyContent: "center" },
-  btnPrimary: {
-    backgroundColor: "#D32F2F", height: 56, borderRadius: 8,
-    justifyContent: "center", alignItems: "center",
-    width: "100%", marginTop: 8
+  shell:      { flex: 1 },
+  safe:       { flex: 1 },
+  backBtn: {
+    position: "absolute",
+    top: 16,
+    left: 20,
+    zIndex: 10,
+    padding: 4,
   },
-  btnText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-  btnSecondary: {
-    height: 56, borderRadius: 8, borderWidth: 2, borderColor: "#D32F2F",
-    justifyContent: "center", alignItems: "center", width: "100%", marginTop: 8
+  centerWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
   },
-  btnSecondaryText: { color: "#D32F2F", fontSize: 16, fontWeight: "bold" },
+  logo: { width: 120, height: 120 },
+  title: {
+    fontSize: 26,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+    textAlign: "center",
+    marginTop: 24,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: "#FFFFFF",
+    opacity: 0.9,
+    textAlign: "center",
+    lineHeight: 22,
+    marginTop: 10,
+  },
+  bottomBtn: {
+    position: "absolute",
+    bottom: 48,
+    left: 24,
+    right: 24,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bottomBtnTextError:   { color: BG_ERROR,   fontSize: 16, fontWeight: "bold" },
+  bottomBtnTextSuccess: { color: BG_SUCCESS, fontSize: 16, fontWeight: "bold" },
 });

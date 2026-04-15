@@ -11,6 +11,7 @@ export default function RootLayout() {
         <Stack.Screen name="incident-tabs" />
         <Stack.Screen name="patient-info" />
         <Stack.Screen name="profile" />
+        <Stack.Screen name="history" />
       </Stack>
     </IncidentProvider>
   );

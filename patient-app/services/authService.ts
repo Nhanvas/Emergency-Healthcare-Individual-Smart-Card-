@@ -2,7 +2,7 @@ import { auth } from "./firebase";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signOut
+  signOut as firebaseSignOut,
 } from "firebase/auth";
 
 // Đăng ký tài khoản mới
@@ -17,7 +17,10 @@ export const login = async (email: string, password: string) => {
   return result.user;
 };
 
-// Đăng xuất
-export const logout = async () => {
-  await signOut(auth);
+// Đăng xuất (Firebase signOut)
+export const signOut = async () => {
+  await firebaseSignOut(auth);
 };
+
+/** @deprecated use signOut */
+export const logout = signOut;

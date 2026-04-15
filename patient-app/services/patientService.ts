@@ -1,3 +1,4 @@
+import { getPatientPublicProfileUrl } from "../constants/config";
 import { db, auth } from "./firebase";
 import {
   doc,
@@ -16,13 +17,20 @@ export const savePatient = async (data: {
   bloodType: string;
   allergies: string[];
   conditions: string[];
-  emergencyContact: string;
+  medications: string[];
+  emergencyContact: {
+    name: string;
+    phone: string;
+    relationship: string;
+  };
 }) => {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error("Chưa đăng nhập");
 
   await setDoc(doc(db, "patients", uid), {
     ...data,
+    medications: data.medications ?? [],
+    qrUrl: getPatientPublicProfileUrl(uid),
     updatedAt: serverTimestamp()
   });
 };

@@ -1,34 +1,87 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Share, ScrollView, Alert,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  ScrollView,
+  Alert,
+  Share,
+  Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import * as MediaLibrary from "expo-media-library";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
+import { captureRef } from "react-native-view-shot";
 import { router } from "expo-router";
 import { auth } from "../../services/firebase";
 import { getPatient } from "../../services/patientService";
 import { BYSTANDER_DOMAIN } from "../../constants/config";
 
+// ─── Types ────────────────────────────────────────────────────
+type PatientDoc = {
+  fullName?: string;
+};
+
+// QRCode SVG ref type — dùng inline thay vì MutableRefObject vì React 19
+// đã thay đổi cách export các generic ref types
+type QrSvgRef = { toDataURL: (cb: (data: string) => void) => void } | null;
+
+// ─── Helper: lưu QR vào gallery qua base64 data URL ──────────
+function saveQrPngViaDataUrl(svgRef: React.RefObject<QrSvgRef>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ref = svgRef.current;
+    if (!ref?.toDataURL) {
+      reject(new Error("QR ref unavailable"));
+      return;
+    }
+    ref.toDataURL(async (dataURL: string) => {
+      try {
+        const base = FileSystem.cacheDirectory ?? "";
+        const tempUri = `${base}qr_${Date.now()}.png`;
+        await FileSystem.writeAsStringAsync(tempUri, dataURL, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        await MediaLibrary.saveToLibraryAsync(tempUri);
+        Alert.alert("Đã lưu", "Mã QR đã được lưu vào thư viện ảnh.");
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+// ─── Main component ───────────────────────────────────────────
 export default function QRCodeScreen() {
-  const [patient, setPatient] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [qrValue, setQrValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const qrRef = useRef<any>(null);
+  const [patient, setPatient] = useState<PatientDoc | null>(null);
+  const [loading, setLoading]  = useState(true);
+  const [saving,  setSaving]   = useState(false);
+
+  const shotRef  = useRef<View>(null);
+  // useRef<T>(null) trong React 19 trả về RefObject<T> — không cần MutableRefObject
+  const qrSvgRef = useRef<QrSvgRef>(null);
+
+  const uid = auth.currentUser?.uid ?? "";
+
+  // ── Build QR URL từ BYSTANDER_DOMAIN + uid ──────────────────
+  // Luôn tự build thay vì lấy qrUrl từ Firestore:
+  //   - Đảm bảo URL luôn đúng kể cả khi user đăng ký từ lúc chưa có field qrUrl
+  //   - Domain thay đổi chỉ cần sửa 1 chỗ (constants/config.ts)
+  const qrUrl = uid ? `${BYSTANDER_DOMAIN}/patient/${uid}` : "";
+
+  const profileIncomplete = !uid || !patient || !patient.fullName?.trim();
 
   useEffect(() => {
     const load = async () => {
       try {
-        const uid = auth.currentUser?.uid;
-        const data = await getPatient();
-        if (uid && data) {
-          setPatient(data);
-          setQrValue(`${BYSTANDER_DOMAIN}/patient/${uid}`);
-        }
-      } catch (e) {
-        console.log(e);
+        const data = (await getPatient()) as PatientDoc | null;
+        setPatient(data);
+      } catch {
+        setPatient(null);
       } finally {
         setLoading(false);
       }
@@ -36,155 +89,315 @@ export default function QRCodeScreen() {
     load();
   }, []);
 
-  const handleShare = async () => {
-    await Share.share({
-      message: `Ma QR khan cap cua ${patient?.fullName}: ${qrValue}`,
-    });
-  };
-
+  // ── Download QR ──────────────────────────────────────────────
   const handleDownload = async () => {
-    if (!qrRef.current) return;
-    setSaving(true);
-
+    if (!qrUrl) return;
     const { status } = await MediaLibrary.requestPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Can quyen truy cap", "Vui long cho phep truy cap thu vien anh.");
-      setSaving(false);
+      Alert.alert("Cần quyền truy cập", "Vui lòng cho phép truy cập thư viện ảnh.");
       return;
     }
-
-    // toDataURL là callback — không phải Promise nên không dùng await
-    qrRef.current.toDataURL(async (dataURL: string) => {
-      try {
-        const tempUri = FileSystem.cacheDirectory + `qr_${Date.now()}.png`;
-
-        await FileSystem.writeAsStringAsync(tempUri, dataURL, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-
-        const asset = await MediaLibrary.createAssetAsync(tempUri);
-        await MediaLibrary.createAlbumAsync("Emergency QR", asset, false);
-
-        Alert.alert("Da luu!", "Ma QR da duoc luu vao thu vien anh.");
-      } catch (e) {
-        console.error("Download QR error:", e);
-        Alert.alert("Loi", "Khong the luu anh. Thu lai nhe.");
-      } finally {
-        setSaving(false);
+    setSaving(true);
+    try {
+      // Ưu tiên: chụp screenshot view chứa QR (bao gồm cả bracket corners)
+      if (shotRef.current && Platform.OS !== "web") {
+        try {
+          const uri = await captureRef(shotRef, { format: "png", quality: 1 });
+          await MediaLibrary.saveToLibraryAsync(uri);
+          Alert.alert("Đã lưu", "Mã QR đã được lưu vào thư viện ảnh.");
+          return;
+        } catch {
+          // Fallback sang SVG export nếu captureRef thất bại
+        }
       }
-    });
+      await saveQrPngViaDataUrl(qrSvgRef);
+    } catch {
+      Alert.alert("Lỗi", "Không thể lưu ảnh. Thử lại.");
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // ── Share QR URL ─────────────────────────────────────────────
+  const handleShare = async () => {
+    if (!qrUrl) return;
+    try {
+      await Share.share({ message: qrUrl });
+    } catch {
+      /* user dismissed */
+    }
+  };
+
+  // ── Loading state ─────────────────────────────────────────────
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#D32F2F" />
-      </View>
+      <SafeAreaView style={styles.safeRoot} edges={["top"]}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color="#1892BE" />
+        </View>
+      </SafeAreaView>
     );
   }
 
-  if (!patient) {
+  // ── Profile chưa hoàn thiện ───────────────────────────────────
+  if (profileIncomplete) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.emptyText}>Chua co thong tin y te</Text>
-        <Text style={styles.emptySubtext}>Vui long dien ho so truoc</Text>
-      </View>
+      <SafeAreaView style={styles.safeRoot} edges={["top"]}>
+        <View style={styles.incompleteWrap}>
+          <Text style={styles.incompleteText}>
+            Vui lòng hoàn thiện hồ sơ trước
+          </Text>
+          <TouchableOpacity
+            style={styles.incompleteBtn}
+            onPress={() => router.push("/patient-form")}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.incompleteBtnText}>Điền hồ sơ</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
+  // ── Main QR screen ────────────────────────────────────────────
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Ma QR khan cap</Text>
-      <Text style={styles.subtitle}>
-        Cho nguoi xung quanh quet ma nay khi co tinh huong khan cap
-      </Text>
-
-      <View style={styles.qrContainer}>
-        <QRCode
-          value={qrValue}
-          size={280}
-          color="#212121"
-          backgroundColor="#ffffff"
-          getRef={(ref) => (qrRef.current = ref)}
-        />
+    <SafeAreaView style={styles.safeRoot} edges={["top"]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerSide}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Quay lại"
+            >
+              <Ionicons name="arrow-back" size={24} color="#212121" />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.headerTitle}>Mã QR của bạn</Text>
+          <View style={[styles.headerSide, styles.headerSideRight]}>
+            <TouchableOpacity
+              onPress={() => router.push("/patient-form")}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Chỉnh sửa hồ sơ"
+            >
+              <Ionicons name="pencil-outline" size={22} color="#212121" />
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
-      <Text style={styles.patientName}>{patient.fullName}</Text>
-      <View style={styles.bloodBadge}>
-        <Text style={styles.bloodText}>{patient.bloodType}</Text>
-      </View>
-
-      <TouchableOpacity
-        style={[styles.btnDownload, saving && styles.btnDisabled]}
-        onPress={handleDownload}
-        disabled={saving}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        {saving ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.btnDownloadText}>Luu QR vao thu vien</Text>
-        )}
-      </TouchableOpacity>
+        {/* QR code với bracket corners — view này sẽ được chụp khi Download */}
+        <View ref={shotRef} style={styles.qrCapture} collapsable={false}>
+          <View style={[styles.bracket, styles.bracketTL]} />
+          <View style={[styles.bracket, styles.bracketTR]} />
+          <View style={[styles.bracket, styles.bracketBL]} />
+          <View style={[styles.bracket, styles.bracketBR]} />
+          <View style={styles.qrInner}>
+            <QRCode
+              value={qrUrl}
+              size={220}
+              color="#000000"
+              backgroundColor="#FFFFFF"
+              getRef={(c) => {
+                qrSvgRef.current = c;
+              }}
+            />
+          </View>
+        </View>
 
-      <TouchableOpacity
-        style={styles.btnNfc}
-        onPress={() => router.push("/nfc-write" as any)}
-      >
-        <Text style={styles.btnNfcText}>Ghi the NFC</Text>
-      </TouchableOpacity>
+        <Text style={styles.description}>
+          Người xung quanh có thể quét mã này để truy cập hồ sơ y tế và điều phối hỗ trợ khẩn cấp.
+        </Text>
 
-      <TouchableOpacity style={styles.btnShare} onPress={handleShare}>
-        <Text style={styles.btnShareText}>Chia se ma QR</Text>
-      </TouchableOpacity>
+        {/* Nút Tải mã QR */}
+        <TouchableOpacity
+          style={[styles.btnPrimary, saving && styles.btnDisabled]}
+          onPress={handleDownload}
+          disabled={saving}
+          activeOpacity={0.85}
+        >
+          {saving ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <View style={styles.btnDownloadInner}>
+              <Ionicons name="download-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.btnPrimaryText}>Tải mã QR</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
-      <Text style={styles.note}>
-        Ma QR nay dan den trang web khan cap.{"\n"}
-        Thong tin y te chi duoc chia se voi tinh nguyen vien duoc xac nhan.
-      </Text>
-    </ScrollView>
+        {/* Nút Ghi thẻ NFC */}
+        <TouchableOpacity
+          style={styles.btnPrimary}
+          onPress={() => router.push("/nfc-write")}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.btnNfcText}>Ghi thẻ NFC</Text>
+        </TouchableOpacity>
+
+        {/* Nút Chia sẻ */}
+        <TouchableOpacity
+          style={styles.btnShare}
+          onPress={handleShare}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.btnShareText}>Chia sẻ mã QR</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  content: { paddingHorizontal: 24, paddingTop: 48, paddingBottom: 48, alignItems: "center" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
-  title: { fontSize: 24, fontWeight: "bold", color: "#D32F2F", marginBottom: 8 },
-  subtitle: { fontSize: 14, color: "#757575", textAlign: "center", marginBottom: 32, lineHeight: 20 },
-  qrContainer: {
-    padding: 24, backgroundColor: "#fff", borderRadius: 16, elevation: 4,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1, shadowRadius: 8, marginBottom: 24,
+  safeRoot: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
   },
-  patientName: { fontSize: 20, fontWeight: "bold", color: "#212121", marginBottom: 12 },
-  bloodBadge: {
-    backgroundColor: "#D32F2F", paddingHorizontal: 24,
-    paddingVertical: 8, borderRadius: 20, marginBottom: 32,
+  loadingWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  bloodText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
-  btnDownload: {
-    backgroundColor: "#D32F2F", height: 56, borderRadius: 8,
-    justifyContent: "center", alignItems: "center",
-    width: "100%", marginBottom: 12,
+  incompleteWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
   },
-  btnDownloadText: { color: "#fff", fontSize: 15, fontWeight: "bold" },
-  btnNfc: {
-    height: 56, borderRadius: 8, borderWidth: 2, borderColor: "#D32F2F",
-    justifyContent: "center", alignItems: "center",
-    width: "100%", marginBottom: 12,
+  incompleteText: {
+    fontSize: 16,
+    color: "#212121",
+    textAlign: "center",
+    marginBottom: 20,
   },
-  btnNfcText: { color: "#D32F2F", fontSize: 15, fontWeight: "bold" },
+  incompleteBtn: {
+    backgroundColor: "#1892BE",
+    height: 48,
+    borderRadius: 8,
+    paddingHorizontal: 28,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  incompleteBtnText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "bold",
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    marginBottom: 24,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerSide: {
+    width: 40,
+    justifyContent: "center",
+  },
+  headerSideRight: {
+    alignItems: "flex-end",
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#212121",
+    textAlign: "center",
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    alignItems: "center",
+    paddingBottom: 32,
+  },
+  qrCapture: {
+    width: 260,
+    height: 260,
+    alignSelf: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    position: "relative",
+  },
+  bracket: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    borderColor: "#212121",
+  },
+  bracketTL: { top: 0,    left: 0,  borderTopWidth: 3,    borderLeftWidth: 3  },
+  bracketTR: { top: 0,    right: 0, borderTopWidth: 3,    borderRightWidth: 3 },
+  bracketBL: { bottom: 0, left: 0,  borderBottomWidth: 3, borderLeftWidth: 3  },
+  bracketBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 },
+  qrInner: {
+    ...StyleSheet.absoluteFillObject,
+    margin: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  description: {
+    fontSize: 14,
+    color: "#757575",
+    textAlign: "center",
+    lineHeight: 22,
+    marginTop: 20,
+    marginBottom: 32,
+    width: "100%",
+  },
+  btnPrimary: {
+    backgroundColor: "#1892BE",
+    height: 52,
+    borderRadius: 8,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  btnDisabled: {
+    opacity: 0.65,
+  },
+  btnDownloadInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  btnPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  btnNfcText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   btnShare: {
-    height: 56, borderRadius: 8, backgroundColor: "#F5F5F5",
-    justifyContent: "center", alignItems: "center",
-    width: "100%", marginBottom: 24,
+    backgroundColor: "#EEEEEE",
+    height: 52,
+    borderRadius: 8,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
   },
-  btnShareText: { color: "#757575", fontSize: 15, fontWeight: "bold" },
-  btnDisabled: { opacity: 0.6 },
-  emptyText: { fontSize: 18, fontWeight: "bold", color: "#212121", marginBottom: 8 },
-  emptySubtext: { fontSize: 14, color: "#757575" },
-  note: {
-    fontSize: 12, color: "#757575", textAlign: "center",
-    lineHeight: 18, backgroundColor: "#F5F5F5", padding: 16, borderRadius: 8,
+  btnShareText: {
+    color: "#9E9E9E",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

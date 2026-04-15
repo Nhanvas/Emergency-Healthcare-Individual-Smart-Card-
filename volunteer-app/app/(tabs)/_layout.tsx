@@ -1,54 +1,71 @@
-import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
-import { COLORS } from '../../constants';
-import { useIncident } from '../../context/IncidentContext';
+import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function TabsLayout() {
-  const { activeIncidentId } = useIncident();
+  const insets = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, 8);
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.gray600,
+        tabBarActiveTintColor: "#E53935",
+        tabBarInactiveTintColor: "#9E9E9E",
         tabBarStyle: {
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 4,
-          borderTopColor: '#E0E0E0',
-          backgroundColor: COLORS.white,
+          height: 60 + bottomPad,
+          paddingBottom: bottomPad,
+          paddingTop: 6,
+          borderTopColor: "#E0E0E0",
+          borderTopWidth: 1,
+          backgroundColor: "#fff",
           elevation: 8,
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '600',
+          fontWeight: "600",
         },
       }}
     >
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Home',
-          tabBarIcon: () => <Text style={{ fontSize: 22 }}>{'🏠'}</Text>,
+          title: "Trang chủ",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "home" : "home-outline"}
+              size={22}
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
-          title: 'Map',
-          tabBarIcon: () => <Text style={{ fontSize: 22 }}>{'🗺'}</Text>,
-          tabBarItemStyle: activeIncidentId ? {} : { display: 'none' },
+          title: "Bản đồ",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "map" : "map-outline"}
+              size={22}
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Cai dat',
-          tabBarIcon: () => <Text style={{ fontSize: 22 }}>{'⚙'}</Text>,
+          title: "Cài đặt",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "settings" : "settings-outline"}
+              size={22}
+              color={color}
+            />
+          ),
         }}
       />
-      {/* History van giu lai nhung an khoi tab bar */}
       <Tabs.Screen
         name="history"
         options={{ href: null }}

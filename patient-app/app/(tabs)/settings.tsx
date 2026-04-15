@@ -1,125 +1,139 @@
-import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView, Alert } from "react-native";
 import { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { logout } from "../../services/authService";
+import { signOut } from "../../services/authService";
 
-export default function SettingsScreen() {
-  const [isVietnamese, setIsVietnamese] = useState(true);
+const ABOUT_BODY =
+  "Dự án được phát triển bởi nhóm sinh viên Kỹ thuật Y sinh, Trường Đại học Quốc tế, ĐHQG TP.HCM. Hệ thống hỗ trợ cấp cứu khẩn cấp, kết nối nhanh chóng giữa người qua đường, bệnh nhân và tình nguyện viên thông qua QR/NFC, giúp rút ngắn thời gian phản ứng trong tình huống nguy cấp.";
 
-  const handleLanguageToggle = async (value: boolean) => {
-    setIsVietnamese(value);
-    await AsyncStorage.setItem("language", value ? "vi" : "en");
-  };
+const PRIVACY_BODY =
+  "Thông tin y tế của bạn được mã hóa và chỉ chia sẻ với tình nguyện viên được xác nhận khi có sự cố khẩn cấp. Chúng tôi không bán hay chia sẻ dữ liệu của bạn cho bên thứ ba.";
+
+export default function Settings() {
+  const [signingOut, setSigningOut] = useState(false);
 
   const handleLogout = async () => {
-    Alert.alert(
-      "Đăng xuất",
-      "Bạn có chắc muốn đăng xuất không?",
-      [
-        { text: "Huỷ", style: "cancel" },
-        {
-          text: "Đăng xuất",
-          style: "destructive",
-          onPress: async () => {
-            await logout();
-            router.replace("/login" as any);
-          },
-        },
-      ]
-    );
+    try {
+      setSigningOut(true);
+      await signOut();
+      router.replace("/login");
+    } catch {
+      setSigningOut(false);
+    }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.pageTitle}>Cài đặt</Text>
+    <SafeAreaView style={styles.safeRoot} edges={["top"]}>
+      <View style={styles.flexCol}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Cài đặt</Text>
+        </View>
 
-      {/* Ngôn ngữ */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>NGÔN NGỮ</Text>
-        <View style={styles.row}>
-          <View>
-            <Text style={styles.rowLabel}>Tiếng Việt</Text>
-            <Text style={styles.rowSub}>Mặc định</Text>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Về dự án</Text>
+            <Text style={styles.sectionBody}>{ABOUT_BODY}</Text>
           </View>
-          <Switch
-            value={isVietnamese}
-            onValueChange={handleLanguageToggle}
-            trackColor={{ false: "#E0E0E0", true: "#FFCDD2" }}
-            thumbColor={isVietnamese ? "#D32F2F" : "#9E9E9E"}
-          />
+
+          <View style={styles.sectionSpaced}>
+            <Text style={styles.sectionTitle}>Quyền riêng tư</Text>
+            <Text style={styles.sectionBody}>{PRIVACY_BODY}</Text>
+          </View>
+        </ScrollView>
+
+        <View style={styles.logoutWrap}>
+          <TouchableOpacity
+            style={[styles.btnLogout, signingOut && styles.btnLogoutDisabled]}
+            onPress={handleLogout}
+            disabled={signingOut}
+            activeOpacity={0.85}
+          >
+            {signingOut ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.btnLogoutText}>Đăng xuất</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
-
-      {/* Thông tin dự án */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>VỀ DỰ ÁN</Text>
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Hệ thống Cấp cứu Khẩn cấp</Text>
-          <Text style={styles.infoText}>
-            Dự án Capstone Design — Kỹ thuật Y sinh
-          </Text>
-          <Text style={styles.infoText}>
-            Đại học Quốc tế (IU), TP. Hồ Chí Minh
-          </Text>
-          <View style={styles.divider} />
-          <Text style={styles.infoLabel}>Nhóm thực hiện</Text>
-          <Text style={styles.infoText}>Member 1 — UX/UI & Frontend</Text>
-          <Text style={styles.infoText}>Member 2 — Backend & Firebase</Text>
-          <Text style={styles.infoText}>Member 3 — Báo cáo & Kiến trúc</Text>
-          <Text style={styles.infoText}>Member 4 — Tài liệu & Kiểm thử</Text>
-          <View style={styles.divider} />
-          <Text style={styles.infoLabel}>Phiên bản</Text>
-          <Text style={styles.infoText}>v2.0 — Post-Midterm (Tháng 3/2026)</Text>
-        </View>
-      </View>
-
-      {/* Chính sách */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>QUYỀN RIÊNG TƯ</Text>
-        <View style={styles.infoCard}>
-          <Text style={styles.infoText}>
-            Thông tin y tế của bạn được mã hoá và chỉ chia sẻ với tình nguyện viên
-            được xác nhận khi có sự cố khẩn cấp. Chúng tôi không bán hay chia sẻ
-            dữ liệu của bạn với bên thứ ba.
-          </Text>
-        </View>
-      </View>
-
-      {/* Đăng xuất */}
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Đăng xuất</Text>
-      </TouchableOpacity>
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 24, paddingBottom: 48 },
-  pageTitle: {
-    fontSize: 28, fontWeight: "bold", color: "#D32F2F",
-    marginBottom: 24, marginTop: 16,
+  safeRoot: {
+    flex: 1,
+    backgroundColor: "#F5F5F5",
   },
-  section: { marginBottom: 24 },
+  flexCol: {
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  header: {
+    backgroundColor: "#1892BE",
+    paddingVertical: 16,
+  },
+  headerTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 16,
+  },
+  section: {},
+  sectionSpaced: {
+    marginTop: 24,
+  },
   sectionTitle: {
-    fontSize: 11, fontWeight: "700", color: "#9E9E9E",
-    letterSpacing: 1.5, marginBottom: 8,
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#212121",
+    marginBottom: 8,
   },
-  row: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    backgroundColor: "#F5F5F5", borderRadius: 12, padding: 16,
+  sectionBody: {
+    fontSize: 14,
+    color: "#424242",
+    lineHeight: 22,
+    textAlign: "justify",
   },
-  rowLabel: { fontSize: 16, fontWeight: "600", color: "#212121" },
-  rowSub: { fontSize: 12, color: "#9E9E9E", marginTop: 2 },
-  infoCard: { backgroundColor: "#F5F5F5", borderRadius: 12, padding: 16, gap: 4 },
-  infoTitle: { fontSize: 16, fontWeight: "700", color: "#212121", marginBottom: 4 },
-  infoLabel: { fontSize: 13, fontWeight: "700", color: "#757575", marginTop: 8 },
-  infoText: { fontSize: 14, color: "#424242", lineHeight: 20 },
-  divider: { height: 1, backgroundColor: "#E0E0E0", marginVertical: 8 },
-  logoutBtn: {
-    height: 56, borderRadius: 12, borderWidth: 2, borderColor: "#D32F2F",
-    justifyContent: "center", alignItems: "center", marginTop: 8,
+  logoutWrap: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
   },
-  logoutText: { color: "#D32F2F", fontSize: 16, fontWeight: "700" },
+  btnLogout: {
+    backgroundColor: "#D32F2F",
+    height: 52,
+    borderRadius: 8,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  btnLogoutDisabled: {
+    opacity: 0.75,
+  },
+  btnLogoutText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
 });
