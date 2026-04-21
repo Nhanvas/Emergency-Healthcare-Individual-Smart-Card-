@@ -193,6 +193,12 @@ exports.acceptIncident = onRequest(
         emergencyContact: rawPatient.emergencyContact || null,
       } : null;
 
+      if (patientData) {
+        await db.collection("incidents").doc(incidentId).update({
+          patientData: patientData,
+        });
+      }
+      
       return res.status(200).json({
         success: true,
         patientId: result.patientId,

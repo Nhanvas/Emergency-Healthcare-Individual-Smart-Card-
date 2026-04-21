@@ -54,8 +54,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "5ac54139-db3b-455b-91c2-eb7df13bd40a"
+        "projectId": "1581dfa6-ea58-47b7-9d6e-f19e7d96493a"
       }
-    }
+    },
+    "owner": "ankiney"
   }
 }

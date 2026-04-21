@@ -19,6 +19,10 @@ export interface IncidentData {
   id: string;
   patientId: string;
   reporterLocation: { lat: number; lng: number };
+  bystanderPhone?: string | null;      
+  bystanderNote?: string | null;       
+  patientData?: PatientData | null;
+  volunteerName?: string;
   status: 'pending' | 'accepted' | 'completed' | 'expired';
   acceptedBy?: string;
   acceptedAt?: any;
@@ -46,7 +50,7 @@ export async function acceptIncident(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ incidentId, volunteerId }),
   });
-  return res.json();
+  return res.json() as Promise<{ success: boolean; patientId?: string; patientData?: PatientData; volunteerName?: string; error?: string }>;
 }
 
 export async function completeIncident(incidentId: string) {

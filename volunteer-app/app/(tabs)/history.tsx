@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet,
-  RefreshControl, ActivityIndicator,
+  RefreshControl, ActivityIndicator, TouchableOpacity,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { getVolunteerHistory, IncidentData } from '../../services/incidentService';
 import { getCurrentUser } from '../../services/authService';
 
@@ -34,6 +35,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function HistoryScreen() {
   const user = getCurrentUser();
+  const router = useRouter();
   const [incidents, setIncidents] = useState<IncidentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -89,15 +91,23 @@ export default function HistoryScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push(`../history-detail?incidentId=${item.id}`)}
+            activeOpacity={0.75}
+          >
             <View style={styles.cardTop}>
               <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
               <StatusBadge status={item.status} />
             </View>
+            {item.patientData?.fullName ? (
+              <Text style={styles.cardName}>👤 {item.patientData.fullName}</Text>
+            ) : null}
             <Text style={styles.cardLocation}>
               📍 {item.reporterLocation?.lat?.toFixed(4)}, {item.reporterLocation?.lng?.toFixed(4)}
             </Text>
-          </View>
+            <Text style={styles.cardArrow}>Xem chi tiết →</Text>
+          </TouchableOpacity>
         )}
       />
     </View>
@@ -105,6 +115,8 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
+  cardName: { fontSize: 14, color: '#212121', marginBottom: 4 },
+  cardArrow: { fontSize: 12, color: PRIMARY, marginTop: 8, fontWeight: '600' },
   container: { flex: 1, backgroundColor: '#fff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
