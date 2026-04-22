@@ -46,9 +46,8 @@ export default function HistoryDetailScreen() {
         setIncident(incData);
 
         // Load patient
-        if ((incData as any).patientId) {
-          const patSnap = await getDoc(doc(db, 'patients', (incData as any).patientId));
-          if (patSnap.exists()) setPatient(patSnap.data());
+        if ((incData as any).patientData) {
+          setPatient((incData as any).patientData);
         }
       } catch (e) {
         console.error(e);
