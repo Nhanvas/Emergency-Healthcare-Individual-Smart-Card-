@@ -20,7 +20,7 @@ import {
   saveFCMToken,
   VolunteerData,
 } from '../../services/volunteerService';
-import { acceptIncident } from '../../services/incidentService';
+import { acceptIncident, subscribeIncident } from '../../services/incidentService';
 import AlertModal, { AlertData } from '../../components/AlertModal';
 import { useIncident } from '../../context/IncidentContext';
 import {
@@ -104,6 +104,19 @@ export default function HomeScreen() {
 
     return () => { fgSub.remove(); bgSub.remove(); };
   }, []);
+
+  useEffect(() => {
+    if (!alertVisible || !alertData?.incidentId) return;
+
+    const unsubscribe = subscribeIncident(alertData.incidentId, (data) => {
+      if (data?.status === 'accepted' || data?.status === 'expired') {
+        setAlertVisible(false);
+        setAlertData(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [alertVisible, alertData?.incidentId]);
 
   // Location interval management
   const startLocationInterval = (isActive: boolean) => {
