@@ -13,11 +13,7 @@ setGlobalOptions({ region: "asia-southeast1" });
 // 1. createIncident (HTTP)
 // ==========================================
 exports.createIncident = onRequest(
-  {
-    cors: true,
-    // FIX 3: minInstances: 1 giữ function luôn warm → không bị cold start ~2 phút
-    minInstances: 1,
-  },
+  { cors: true },
   async (req, res) => {
     try {
       const { patientId, lat, lng, bystanderPhone, bystanderNote } = req.body;
@@ -130,11 +126,7 @@ async function findAndNotifyVolunteers(incidentId, reporterLocation) {
 // 3. acceptIncident (HTTP)
 // ==========================================
 exports.acceptIncident = onRequest(
-  {
-    cors: true,
-    // FIX 3: minInstances: 1 giữ function luôn warm
-    minInstances: 1,
-  },
+  { cors: true },
   async (req, res) => {
     try {
       const { incidentId, volunteerId } = req.body;
